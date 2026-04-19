@@ -37,6 +37,29 @@ npm run dev
 npm run build
 ```
 
+## Cloudflare Pages
+
+Cloudflare Pages へはそのまま静的配信できます。公式の Vite 向け設定は `npm run build` を実行し、出力ディレクトリを `dist` にする形です。SPA ルーティング用に [public/_redirects](/Users/kimmi/Desktop/Projects/UniNote/public/_redirects) を追加してあり、深い URL でも `index.html` にフォールバックします。Cloudflare Pages の `_redirects` は静的アセットディレクトリに置けます。  
+参考:
+- [Cloudflare Pages Vite guide](https://developers.cloudflare.com/pages/framework-guides/deploy-a-vite3-project/)
+- [Cloudflare Pages redirects](https://developers.cloudflare.com/pages/configuration/redirects/)
+- [Cloudflare Pages build image / Node version](https://developers.cloudflare.com/pages/configuration/language-support-and-tools/)
+
+Pages の設定値:
+
+- Project name: `campus-notes-studio`
+- Framework preset: `Vite`
+- Build command: `npm run build`
+- Build output directory: `dist`
+- Node version: `.node-version` の `22.16.0`
+
+推奨:
+
+- GitHub リポジトリを Cloudflare Pages に接続して `main` を production branch にする
+- Build system は v3 を使う
+- PWA 更新を安定させるため [public/_headers](/Users/kimmi/Desktop/Projects/UniNote/public/_headers) で `sw.js` と `manifest.webmanifest` を `no-cache` にしてある
+- IndexedDB / OPFS を使うので、本番 URL は HTTPS 配信にする
+
 ## PWA
 
 - `public/manifest.webmanifest`
