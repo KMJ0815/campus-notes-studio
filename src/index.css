@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    font-family: "Avenir Next", Avenir, "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(99, 102, 241, 0.14), transparent 28%),
+      radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.12), transparent 26%),
+      #f1f5f9;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background: transparent;
+    color: #0f172a;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  ::selection {
+    background: rgba(79, 70, 229, 0.18);
+  }
+}
+
+@layer utilities {
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .line-clamp-5 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+    overflow: hidden;
+  }
+}
+
+#root {
+  min-height: 100vh;
+}

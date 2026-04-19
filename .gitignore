@@ -1,0 +1,5 @@
+node_modules
+dist
+handoff
+.DS_Store
+__MACOSX
