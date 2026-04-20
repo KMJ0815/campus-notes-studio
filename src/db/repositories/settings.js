@@ -27,7 +27,6 @@ export async function loadTermEditorState(termKey) {
 }
 
 export async function saveSettingsBundle({
-  sourceTermKey,
   draftSettings,
   draftPeriods,
   periodsLoadedForTermKey,

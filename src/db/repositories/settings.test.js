@@ -32,14 +32,12 @@ describe("settings repository", () => {
     );
 
     await saveSettingsBundle({
-      sourceTermKey: "2026-spring",
       draftSettings: settingsDraft("2026-spring", "2026年度 春学期"),
       draftPeriods: customSpringPeriods,
       periodsLoadedForTermKey: "2026-spring",
     });
 
     await saveSettingsBundle({
-      sourceTermKey: "2026-spring",
       draftSettings: settingsDraft("2026-fall", "2026年度 秋学期"),
       draftPeriods: customSpringPeriods,
       periodsLoadedForTermKey: "2026-fall",
@@ -65,7 +63,6 @@ describe("settings repository", () => {
     );
 
     await saveSettingsBundle({
-      sourceTermKey: "2026-spring",
       draftSettings: settingsDraft("2026-fall", "2026年度 秋学期"),
       draftPeriods: customFallPeriods,
       periodsLoadedForTermKey: "2026-fall",
@@ -73,7 +70,6 @@ describe("settings repository", () => {
 
     const currentFallPeriods = await loadPeriodDefinitions("2026-fall");
     await saveSettingsBundle({
-      sourceTermKey: "2026-spring",
       draftSettings: settingsDraft("2026-fall", "2026年度 秋学期"),
       draftPeriods: currentFallPeriods.map((period) =>
         period.periodNo === 1 ? { ...period, label: "秋1限を再編集" } : period,
@@ -104,7 +100,6 @@ describe("settings repository", () => {
     });
 
     await saveSettingsBundle({
-      sourceTermKey: "2026-spring",
       draftSettings: settingsDraft("2026-spring", "2026年度 春学期"),
       draftPeriods: reorderedPeriods,
       periodsLoadedForTermKey: "2026-spring",
@@ -137,7 +132,6 @@ describe("settings repository", () => {
 
     await expect(
       saveSettingsBundle({
-        sourceTermKey: "2026-spring",
         draftSettings: settingsDraft("2026-spring", "2026年度 春学期"),
         draftPeriods: disabledPeriods,
         periodsLoadedForTermKey: "2026-spring",
@@ -150,7 +144,6 @@ describe("settings repository", () => {
 
     await expect(
       saveSettingsBundle({
-        sourceTermKey: "2026-spring",
         draftSettings: settingsDraft("2026-fall", "2026年度 秋学期"),
         draftPeriods: springPeriods,
         periodsLoadedForTermKey: "2026-spring",
@@ -161,7 +154,6 @@ describe("settings repository", () => {
   it("rejects saving a term without any period definitions", async () => {
     await expect(
       saveSettingsBundle({
-        sourceTermKey: "2026-spring",
         draftSettings: settingsDraft("2027-spring", "2027年度 春学期"),
         draftPeriods: [],
         periodsLoadedForTermKey: "2027-spring",
@@ -174,7 +166,6 @@ describe("settings repository", () => {
     const periods = await loadPeriodDefinitions("2026-spring");
 
     await saveSettingsBundle({
-      sourceTermKey: "2026-spring",
       draftSettings: {
         ...settingsDraft("2026-spring", "2026年度 春学期 更新"),
         baseUpdatedAt: current.updatedAt,
@@ -185,7 +176,6 @@ describe("settings repository", () => {
 
     await expect(
       saveSettingsBundle({
-        sourceTermKey: "2026-spring",
         draftSettings: {
           ...settingsDraft("2026-spring", "古い設定"),
           baseUpdatedAt: current.updatedAt,

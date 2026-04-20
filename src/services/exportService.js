@@ -1,11 +1,12 @@
 import JSZip from "jszip";
 import { getDb } from "../db/schema";
 import { getMaterialFile } from "./materialFileStore";
-import { safeFileName, todayIso, triggerDownload } from "../lib/utils";
+import { todayIso, triggerDownload } from "../lib/utils";
+import { buildMaterialArchivePath, createBackupManifest } from "./backupManifest";
 
 async function collectExportSnapshot() {
   const db = await getDb();
-  const [settings, termMeta, periods, subjects, slots, notes, attendance, materialMeta] = await Promise.all([
+  const [settings, termMeta, periods, subjects, slots, notes, attendance, todos, materialMeta] = await Promise.all([
     db.get("settings", "app-settings"),
     db.getAll("term_meta"),
     db.getAll("period_definitions"),
@@ -13,6 +14,7 @@ async function collectExportSnapshot() {
     db.getAll("slots"),
     db.getAll("notes"),
     db.getAll("attendance"),
+    db.getAll("todo_items"),
     db.getAll("material_meta"),
   ]);
 
@@ -24,37 +26,27 @@ async function collectExportSnapshot() {
     slots,
     notes,
     attendance,
+    todos,
     materialMeta,
   };
 }
 
 async function buildZip(snapshot, fileEntries = []) {
   const zip = new JSZip();
-  const manifest = {
-    version: 3,
-    exportedAt: new Date().toISOString(),
-    settings: snapshot.settings,
-    termMeta: snapshot.termMeta,
-    periods: snapshot.periods,
-    subjects: snapshot.subjects,
-    slots: snapshot.slots,
-    notes: snapshot.notes,
-    attendance: snapshot.attendance,
-    materials: snapshot.materialMeta,
-  };
+  const manifest = createBackupManifest(snapshot, fileEntries);
 
   zip.file("data/manifest.json", JSON.stringify(manifest, null, 2));
 
-  for (const { meta, blob } of fileEntries) {
-    zip.file(`materials/${meta.id}_${safeFileName(meta.displayName)}`, blob);
+  for (const { meta, blob, path } of fileEntries) {
+    zip.file(path || buildMaterialArchivePath(meta), blob);
   }
 
   return zip.generateAsync({ type: "blob" });
 }
 
-export async function prepareExport({ allowMissingFiles = false } = {}) {
+export async function prepareExport({ allowMissingFiles = false, includeFilesOverride } = {}) {
   const snapshot = await collectExportSnapshot();
-  const includeFiles = snapshot.settings?.exportIncludeFiles !== false;
+  const includeFiles = includeFilesOverride ?? snapshot.settings?.exportIncludeFiles !== false;
 
   if (!includeFiles) {
     const blob = await buildZip(snapshot);
@@ -69,7 +61,7 @@ export async function prepareExport({ allowMissingFiles = false } = {}) {
       missingFiles.push(meta);
       continue;
     }
-    availableFiles.push({ meta, blob: file.blob });
+    availableFiles.push({ meta, blob: file.blob, path: buildMaterialArchivePath(meta) });
   }
 
   if (missingFiles.length > 0 && !allowMissingFiles) {

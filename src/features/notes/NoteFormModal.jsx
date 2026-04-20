@@ -58,6 +58,7 @@ export function NoteFormModal({ open, subject, initialValue, onClose, onSave }) 
     <Modal
       open={open}
       onClose={requestClose}
+      lockClose={saving}
       title={draft?.id ? "ノートを編集" : "ノートを追加"}
       subtitle={subject ? `${subject.name} に紐づくノート` : ""}
     >
@@ -114,7 +115,7 @@ export function NoteFormModal({ open, subject, initialValue, onClose, onSave }) 
       ) : null}
 
       <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-6">
-        <IconButton tone="light" onClick={requestClose}>
+        <IconButton tone="light" onClick={requestClose} disabled={saving}>
           キャンセル
         </IconButton>
         <IconButton icon={CheckCircle2} onClick={handleSave} disabled={saving}>

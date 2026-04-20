@@ -18,9 +18,17 @@ npm ci
 npm test
 npm run build
 npm run package:source
+npm run verify:handoff
 ```
 
-クリーン環境では `npm ci && npm test && npm run build` が最低ラインです。配布用は `npm run package:source` を使い、`node_modules`, `dist`, `__MACOSX` を含めない source-only ZIP を `handoff/` に作ります。
+クリーン環境では `npm ci && npm test && npm run build` が最低ラインです。handoff の正規フローは `npm run package:source` で `handoff/campus-notes-studio-source.zip` を作り、`npm run verify:handoff` で source-only であることを検証する形です。
+
+## Handoff
+
+- 正規の配布成果物は `handoff/campus-notes-studio-source.zip` のみです。
+- outer wrapper ZIP や手元で作った追加 ZIP は正規成果物として扱いません。
+- `npm run verify:handoff` は `node_modules`, `dist`, `.git`, `__MACOSX` を含む ZIP を失敗させます。
+- handoff 前は `npm test`, `npm run build`, `npm run package:source`, `npm run verify:handoff` を順に通してください。
 
 ## 開発
 
@@ -39,7 +47,7 @@ npm run build
 
 ## Cloudflare Pages
 
-Cloudflare Pages へはそのまま静的配信できます。公式の Vite 向け設定は `npm run build` を実行し、出力ディレクトリを `dist` にする形です。SPA ルーティング用に [public/_redirects](/Users/kimmi/Desktop/Projects/UniNote/public/_redirects) を追加してあり、深い URL でも `index.html` にフォールバックします。Cloudflare Pages の `_redirects` は静的アセットディレクトリに置けます。  
+Cloudflare Pages へはそのまま静的配信できます。公式の Vite 向け設定は `npm run build` を実行し、出力ディレクトリを `dist` にする形です。SPA ルーティング用に [public/_redirects](public/_redirects) を追加してあり、深い URL でも `index.html` にフォールバックします。Cloudflare Pages の `_redirects` は静的アセットディレクトリに置けます。  
 参考:
 - [Cloudflare Pages Vite guide](https://developers.cloudflare.com/pages/framework-guides/deploy-a-vite3-project/)
 - [Cloudflare Pages redirects](https://developers.cloudflare.com/pages/configuration/redirects/)
@@ -57,7 +65,7 @@ Pages の設定値:
 
 - GitHub リポジトリを Cloudflare Pages に接続して `main` を production branch にする
 - Build system は v3 を使う
-- PWA 更新を安定させるため [public/_headers](/Users/kimmi/Desktop/Projects/UniNote/public/_headers) で `sw.js` と `manifest.webmanifest` を `no-cache` にしてある
+- PWA 更新を安定させるため [public/_headers](public/_headers) で `sw.js` と `manifest.webmanifest` を `no-cache` にしてある
 - IndexedDB / OPFS を使うので、本番 URL は HTTPS 配信にする
 
 ## PWA

@@ -130,15 +130,19 @@ export function SelectInput(props) {
   );
 }
 
-export function Modal({ open, title, subtitle, onClose, children, maxWidth = "max-w-4xl" }) {
+export function Modal({ open, title, subtitle, onClose, children, maxWidth = "max-w-4xl", lockClose = false }) {
   useEffect(() => {
-    if (!open || !onClose) return undefined;
-    const closer = () => onClose();
+    if (!open || (!onClose && !lockClose)) return undefined;
+    const closer = () => {
+      if (lockClose) return;
+      onClose?.();
+    };
     pushModalCloser(closer);
     const handleKeyDown = (event) => {
       if (event.key !== "Escape") return;
       if (topModalCloser() !== closer) return;
       event.stopPropagation();
+      if (lockClose) return;
       closer();
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -146,7 +150,7 @@ export function Modal({ open, title, subtitle, onClose, children, maxWidth = "ma
       window.removeEventListener("keydown", handleKeyDown);
       removeModalCloser(closer);
     };
-  }, [open, onClose]);
+  }, [lockClose, onClose, open]);
 
   return (
     <AnimatePresence>
@@ -157,7 +161,7 @@ export function Modal({ open, title, subtitle, onClose, children, maxWidth = "ma
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 md:p-8"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) onClose?.();
+            if (event.target === event.currentTarget && !lockClose) onClose?.();
           }}
         >
           <motion.div
@@ -177,7 +181,8 @@ export function Modal({ open, title, subtitle, onClose, children, maxWidth = "ma
                 onClick={onClose}
                 aria-label="閉じる"
                 title="閉じる"
-                className="rounded-2xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                disabled={lockClose || !onClose}
+                className="rounded-2xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <X className="h-5 w-5" />
               </button>

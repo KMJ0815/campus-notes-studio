@@ -9,9 +9,10 @@ vi.mock("../db/repositories/notes", async () => {
 });
 
 import { ensureSeedData, deleteAppDb, getDb, resetDbConnection } from "../db/schema";
-import { saveSubject } from "../db/repositories/subjects";
+import { archiveSubject, saveSubject } from "../db/repositories/subjects";
+import { saveTodo } from "../db/repositories/todos";
 import { loadSubjectNotes } from "../db/repositories/notes";
-import { loadDashboardSummary } from "./loaders";
+import { loadDashboardSummary, loadSubjectHeader } from "./loaders";
 
 describe("loaders", () => {
   beforeEach(async () => {
@@ -96,6 +97,13 @@ describe("loaders", () => {
         createdAt: "2026-04-21T09:00:00.000Z",
         updatedAt: "2026-04-21T09:00:00.000Z",
       }),
+      saveTodo({
+        subjectId: subjectA.id,
+        title: "レポート提出",
+        memo: "",
+        dueDate: "2026-04-22",
+        status: "open",
+      }),
     ]);
 
     const summary = await loadDashboardSummary("2026-spring");
@@ -104,10 +112,93 @@ describe("loaders", () => {
     expect(summary.notesCount).toBe(2);
     expect(summary.materialsCount).toBe(1);
     expect(summary.attendanceCount).toBe(1);
+    expect(summary.openTodosCount).toBe(1);
     expect(summary.recentNotes).toHaveLength(2);
     expect(loadSubjectNotes).not.toHaveBeenCalled();
     expect(getAllSpy).not.toHaveBeenCalledWith("notes");
     expect(getAllSpy).not.toHaveBeenCalledWith("material_meta");
     expect(getAllSpy).not.toHaveBeenCalledWith("attendance");
+  });
+
+  it("excludes archived-subject todos from the dashboard open todo count", async () => {
+    const [activeSubject, archivedSubject] = await Promise.all([
+      saveSubject({
+        termKey: "2026-spring",
+        name: "国際関係論",
+        teacherName: "",
+        room: "",
+        color: "#4f46e5",
+        memo: "",
+        isArchived: false,
+        selectedSlotKeys: ["mon-1"],
+      }),
+      saveSubject({
+        termKey: "2026-spring",
+        name: "統計学",
+        teacherName: "",
+        room: "",
+        color: "#0f172a",
+        memo: "",
+        isArchived: false,
+        selectedSlotKeys: ["tue-1"],
+      }),
+    ]);
+    await archiveSubject(archivedSubject.id);
+
+    await Promise.all([
+      saveTodo({
+        subjectId: activeSubject.id,
+        title: "現役の課題",
+        memo: "",
+        dueDate: "2026-04-22",
+        status: "open",
+      }),
+      saveTodo({
+        subjectId: archivedSubject.id,
+        title: "アーカイブ済みの課題",
+        memo: "",
+        dueDate: "2026-04-23",
+        status: "open",
+      }),
+    ]);
+
+    const summary = await loadDashboardSummary("2026-spring");
+
+    expect(summary.activeSubjectsCount).toBe(1);
+    expect(summary.openTodosCount).toBe(1);
+  });
+
+  it("loads todo counts into the subject header", async () => {
+    const subject = await saveSubject({
+      termKey: "2026-spring",
+      name: "統計学",
+      teacherName: "",
+      room: "",
+      color: "#0f172a",
+      memo: "",
+      isArchived: false,
+      selectedSlotKeys: ["tue-1"],
+    });
+
+    await Promise.all([
+      saveTodo({
+        subjectId: subject.id,
+        title: "小テスト対策",
+        memo: "",
+        dueDate: "2026-04-21",
+        status: "open",
+      }),
+      saveTodo({
+        subjectId: subject.id,
+        title: "配布資料を読む",
+        memo: "",
+        dueDate: "",
+        status: "done",
+      }),
+    ]);
+
+    const header = await loadSubjectHeader(subject.id);
+    expect(header.openTodosCount).toBe(1);
+    expect(header.doneTodosCount).toBe(1);
   });
 });

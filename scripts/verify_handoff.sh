@@ -8,7 +8,7 @@ if [ ! -f "$ZIP_PATH" ]; then
   exit 1
 fi
 
-if unzip -Z1 "$ZIP_PATH" | grep -E '(^|/)(node_modules|dist|__MACOSX)(/|$)' >/dev/null 2>&1; then
+if unzip -Z1 "$ZIP_PATH" | grep -E '(^|/)(\.git|node_modules|dist|__MACOSX)(/|$)' >/dev/null 2>&1; then
   echo "handoff ZIP に禁止パスが含まれています。" >&2
   exit 1
 fi

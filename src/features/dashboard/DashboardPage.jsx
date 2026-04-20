@@ -1,15 +1,16 @@
-import { CalendarDays, CheckCircle2, FileText, Paperclip } from "lucide-react";
+import { CalendarDays, CheckCircle2, FileText, ListTodo, Paperclip } from "lucide-react";
 import { EmptyState, IconButton, Panel, StatCard } from "../../components/ui";
 import { formatShortDate } from "../../lib/utils";
 
 export function DashboardPage({ summary, onOpenTimetable, onOpenSubject, onEditRecentNote }) {
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard icon={CalendarDays} label="今学期の授業数" value={summary.activeSubjectsCount} />
         <StatCard icon={FileText} label="ノート件数" value={summary.notesCount} />
         <StatCard icon={Paperclip} label="資料件数" value={summary.materialsCount} />
         <StatCard icon={CheckCircle2} label="出席記録" value={summary.attendanceCount} />
+        <StatCard icon={ListTodo} label="未完了ToDo" value={summary.openTodosCount ?? 0} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">

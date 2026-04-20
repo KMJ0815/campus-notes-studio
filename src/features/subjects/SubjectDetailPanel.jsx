@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, BookOpen, CheckCircle2, FileText, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
+import { Archive, BookOpen, CheckCircle2, FileText, ListTodo, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
 import { ATTENDANCE_STATUS_OPTIONS, DETAIL_TABS } from "../../lib/constants";
 import {
   emptyAttendanceDraft,
+  emptyTodoDraft,
   formatDate,
   formatSlotLabel,
   nextLectureDateForSlots,
@@ -11,14 +12,50 @@ import {
 } from "../../lib/utils";
 import { errorMessage } from "../../lib/errors";
 import { Chip, EmptyState, Field, IconActionButton, IconButton, Panel, SelectInput, TextArea, TextInput } from "../../components/ui";
+import { TodoFormModal } from "../todos/TodoFormModal";
+
+function TodoItemCard({ todo, isDone = false, pending = false, onToggle, onEdit, onDelete }) {
+  return (
+    <div className={`rounded-3xl border border-slate-200 p-4 ${isDone ? "bg-slate-50" : "bg-white"}`}>
+      <div className="min-w-0">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <p className={`break-words text-sm font-semibold leading-6 ${isDone ? "text-slate-700 line-through" : "text-slate-900"}`}>
+              {todo.title}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {todo.dueDate ? <Chip tone="amber">{`期限 ${todo.dueDate}`}</Chip> : null}
+              {isDone ? <Chip tone="emerald">完了</Chip> : null}
+            </div>
+            {todo.memo ? (
+              <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{todo.memo}</p>
+            ) : null}
+            <p className="mt-3 text-xs text-slate-400">更新 {formatDate(todo.updatedAt)}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <IconButton tone="light" onClick={onToggle} disabled={pending} className="w-full justify-center">
+            {isDone ? "未完了へ戻す" : "完了にする"}
+          </IconButton>
+          <div className="flex items-center justify-end gap-1">
+            <IconActionButton onClick={onEdit} icon={Pencil} label="ToDo を編集" disabled={pending} />
+            <IconActionButton onClick={onDelete} icon={Trash2} label="ToDo を削除" tone="danger" disabled={pending} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function SubjectDetailPanel({
   header,
   detailTab,
   tabLoading,
-  notes,
-  materials,
-  attendance,
+  notes = [],
+  materials = [],
+  attendance = [],
+  todos = [],
   onChangeTab,
   onEditSubject,
   onArchiveSubject,
@@ -34,6 +71,8 @@ export function SubjectDetailPanel({
   onSaveAttendance,
   onDeleteAttendance,
   loadAttendanceSlotOptions,
+  onSaveTodo = async () => {},
+  onDeleteTodo = async () => {},
 }) {
   const fileInputRef = useRef(null);
   const [attendanceDraft, setAttendanceDraft] = useState(null);
@@ -42,7 +81,17 @@ export function SubjectDetailPanel({
   const [attendanceSlotOptionsError, setAttendanceSlotOptionsError] = useState("");
   const [attendanceSlotReloadNonce, setAttendanceSlotReloadNonce] = useState(0);
   const [attendanceDateTouched, setAttendanceDateTouched] = useState(false);
+  const [quickTodoTitle, setQuickTodoTitle] = useState("");
+  const [quickTodoDueDate, setQuickTodoDueDate] = useState("");
+  const [savingQuickTodo, setSavingQuickTodo] = useState(false);
+  const [todoEditorInitialValue, setTodoEditorInitialValue] = useState(null);
+  const [showCompletedTodos, setShowCompletedTodos] = useState(false);
+  const [pendingTodoIds, setPendingTodoIds] = useState(() => new Set());
+  const quickTodoSavePendingRef = useRef(false);
+  const pendingTodoIdsRef = useRef(new Set());
   const defaultAttendanceLectureDate = useMemo(() => nextLectureDateForSlots(header?.slots || []), [header?.slots]);
+  const openTodos = useMemo(() => todos.filter((todo) => todo.status !== "done"), [todos]);
+  const doneTodos = useMemo(() => todos.filter((todo) => todo.status === "done"), [todos]);
 
   function resetAttendanceDraft() {
     if (!header?.subject?.id) return;
@@ -54,11 +103,43 @@ export function SubjectDetailPanel({
   useEffect(() => {
     if (header?.subject?.id) {
       resetAttendanceDraft();
+      setQuickTodoTitle("");
+      setQuickTodoDueDate("");
+      setSavingQuickTodo(false);
+      quickTodoSavePendingRef.current = false;
+      pendingTodoIdsRef.current = new Set();
+      setPendingTodoIds(new Set());
+      setTodoEditorInitialValue(null);
+      setShowCompletedTodos(false);
     } else {
       setAttendanceDraft(null);
       setAttendanceDateTouched(false);
+      setQuickTodoTitle("");
+      setQuickTodoDueDate("");
+      setSavingQuickTodo(false);
+      quickTodoSavePendingRef.current = false;
+      pendingTodoIdsRef.current = new Set();
+      setPendingTodoIds(new Set());
+      setTodoEditorInitialValue(null);
+      setShowCompletedTodos(false);
     }
-  }, [defaultAttendanceLectureDate, header?.subject?.id]);
+  }, [header?.subject?.id]);
+
+  useEffect(() => {
+    if (!header?.subject?.id) return;
+    if (!defaultAttendanceLectureDate) return;
+    setAttendanceSlotOptionsError("");
+    setAttendanceDraft((draft) => {
+      if (!draft || draft.subjectId !== header.subject.id || draft.id || attendanceDateTouched) return draft;
+      const nextLectureDate = normalizeDateOnlyInputValue(defaultAttendanceLectureDate);
+      if (!nextLectureDate || draft.lectureDate === nextLectureDate) return draft;
+      return {
+        ...draft,
+        lectureDate: nextLectureDate,
+        timetableSlotId: "",
+      };
+    });
+  }, [attendanceDateTouched, defaultAttendanceLectureDate, header?.subject?.id]);
 
   useEffect(() => {
     if (!attendanceDraft?.id) return;
@@ -176,6 +257,100 @@ export function SubjectDetailPanel({
     resetAttendanceDraft();
   }
 
+  function openTodoEditor(todo) {
+    setTodoEditorInitialValue(
+      emptyTodoDraft(header.subject.id, {
+        id: todo.id,
+        title: todo.title,
+        memo: todo.memo || "",
+        dueDate: normalizeDateOnlyInputValue(todo.dueDate),
+        status: todo.status,
+        completedAt: todo.completedAt || null,
+        baseUpdatedAt: todo.updatedAt,
+      }),
+    );
+  }
+
+  function closeTodoEditor() {
+    setTodoEditorInitialValue(null);
+  }
+
+  function beginTodoPending(todoId) {
+    if (pendingTodoIdsRef.current.has(todoId)) return false;
+    const nextPendingTodoIds = new Set(pendingTodoIdsRef.current);
+    nextPendingTodoIds.add(todoId);
+    pendingTodoIdsRef.current = nextPendingTodoIds;
+    setPendingTodoIds(nextPendingTodoIds);
+    return true;
+  }
+
+  function endTodoPending(todoId) {
+    if (!pendingTodoIdsRef.current.has(todoId)) return;
+    const nextPendingTodoIds = new Set(pendingTodoIdsRef.current);
+    nextPendingTodoIds.delete(todoId);
+    pendingTodoIdsRef.current = nextPendingTodoIds;
+    setPendingTodoIds(nextPendingTodoIds);
+  }
+
+  async function handleQuickAddTodo(event) {
+    event?.preventDefault();
+    if (!header?.subject?.id || !quickTodoTitle.trim() || quickTodoSavePendingRef.current) return;
+
+    quickTodoSavePendingRef.current = true;
+    setSavingQuickTodo(true);
+    let didSave = false;
+    try {
+      await onSaveTodo(
+        emptyTodoDraft(header.subject.id, {
+          title: quickTodoTitle,
+          dueDate: quickTodoDueDate,
+        }),
+      );
+      didSave = true;
+    } catch {
+      return;
+    } finally {
+      if (didSave) {
+        setQuickTodoTitle("");
+        setQuickTodoDueDate("");
+      }
+      quickTodoSavePendingRef.current = false;
+      setSavingQuickTodo(false);
+    }
+  }
+
+  async function handleToggleTodo(todo) {
+    if (!beginTodoPending(todo.id)) return;
+    try {
+      await onSaveTodo({
+        ...emptyTodoDraft(todo.subjectId, {
+          ...todo,
+          dueDate: normalizeDateOnlyInputValue(todo.dueDate),
+          status: todo.status === "done" ? "open" : "done",
+          baseUpdatedAt: todo.updatedAt,
+        }),
+      });
+    } catch {
+      return;
+    } finally {
+      endTodoPending(todo.id);
+    }
+  }
+
+  async function handleDeleteTodo(todo) {
+    if (!beginTodoPending(todo.id)) return;
+    try {
+      await onDeleteTodo(todo);
+      if (todoEditorInitialValue?.id === todo.id) {
+        closeTodoEditor();
+      }
+    } catch {
+      return;
+    } finally {
+      endTodoPending(todo.id);
+    }
+  }
+
   if (!header) {
     return (
       <Panel className="min-h-[640px]">
@@ -224,7 +399,7 @@ export function SubjectDetailPanel({
 
         {header.subject.memo ? <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">{header.subject.memo}</div> : null}
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl bg-slate-50 p-3">
             <p className="text-xs text-slate-500">ノート</p>
             <p className="mt-1 text-xl font-semibold">{header.notesCount}</p>
@@ -237,6 +412,11 @@ export function SubjectDetailPanel({
             <p className="text-xs text-slate-500">出席</p>
             <p className="mt-1 text-xl font-semibold">{header.attendanceCount}</p>
           </div>
+          <div className="rounded-2xl bg-slate-50 p-3">
+            <p className="text-xs text-slate-500">未完了ToDo</p>
+            <p className="mt-1 text-xl font-semibold">{header.openTodosCount ?? 0}</p>
+            <p className="mt-1 text-xs text-slate-400">完了済み {header.doneTodosCount ?? 0}</p>
+          </div>
         </div>
 
         <div className="flex gap-2 rounded-2xl bg-slate-100 p-1">
@@ -244,6 +424,7 @@ export function SubjectDetailPanel({
             { key: DETAIL_TABS.notes, label: "ノート" },
             { key: DETAIL_TABS.materials, label: "資料" },
             { key: DETAIL_TABS.attendance, label: "出席" },
+            { key: DETAIL_TABS.todos, label: "ToDo" },
           ].map((tab) => (
             <button
               type="button"
@@ -477,7 +658,92 @@ export function SubjectDetailPanel({
             </div>
           </div>
         ) : null}
+
+        {detailTab === DETAIL_TABS.todos ? (
+          <div className="space-y-4">
+            <div className="rounded-3xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-semibold text-slate-900">ToDo を追加</h4>
+                <Chip tone="indigo">未完了 {openTodos.length}</Chip>
+              </div>
+              <form className="mt-4 space-y-3" onSubmit={handleQuickAddTodo}>
+                <TextInput
+                  aria-label="ToDoタイトル"
+                  placeholder="例: レポート提出"
+                  value={quickTodoTitle}
+                  disabled={savingQuickTodo}
+                  onChange={(event) => setQuickTodoTitle(event.target.value)}
+                />
+                <TextInput
+                  aria-label="ToDo期限日"
+                  type="date"
+                  value={quickTodoDueDate}
+                  disabled={savingQuickTodo}
+                  onChange={(event) => setQuickTodoDueDate(event.target.value)}
+                />
+                <IconButton
+                  icon={Plus}
+                  type="submit"
+                  disabled={savingQuickTodo || !quickTodoTitle.trim()}
+                  className="w-full justify-center"
+                >
+                  追加
+                </IconButton>
+              </form>
+            </div>
+
+            <div className="space-y-3">
+              {openTodos.length === 0 ? (
+                <EmptyState icon={ListTodo} title="未完了の ToDo はありません" />
+              ) : (
+                openTodos.map((todo) => (
+                  <TodoItemCard
+                    key={todo.id}
+                    todo={todo}
+                    pending={pendingTodoIds.has(todo.id)}
+                    onToggle={() => handleToggleTodo(todo)}
+                    onEdit={() => openTodoEditor(todo)}
+                    onDelete={() => handleDeleteTodo(todo)}
+                  />
+                ))
+              )}
+            </div>
+
+            {doneTodos.length > 0 ? (
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCompletedTodos((current) => !current)}
+                  className="text-sm font-medium text-slate-600 transition hover:text-slate-900"
+                >
+                  {showCompletedTodos ? "完了済み ToDo を隠す" : `完了済み ToDo を表示 (${doneTodos.length})`}
+                </button>
+                {showCompletedTodos ? (
+                  doneTodos.map((todo) => (
+                    <TodoItemCard
+                      key={todo.id}
+                      todo={todo}
+                      isDone
+                      pending={pendingTodoIds.has(todo.id)}
+                      onToggle={() => handleToggleTodo(todo)}
+                      onEdit={() => openTodoEditor(todo)}
+                      onDelete={() => handleDeleteTodo(todo)}
+                    />
+                  ))
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
+
+      <TodoFormModal
+        open={Boolean(todoEditorInitialValue)}
+        subject={header.subject}
+        initialValue={todoEditorInitialValue}
+        onClose={closeTodoEditor}
+        onSave={onSaveTodo}
+      />
     </Panel>
   );
 }

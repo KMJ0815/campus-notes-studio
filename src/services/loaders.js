@@ -4,6 +4,11 @@ import { countMaterialsBySubject, loadSubjectMaterials } from "../db/repositorie
 import { countNotesBySubject, loadSubjectNotes } from "../db/repositories/notes";
 import { loadPeriodDefinitions } from "../db/repositories/periods";
 import {
+  countDoneTodosBySubject,
+  countOpenTodosBySubject,
+  loadSubjectTodos,
+} from "../db/repositories/todos";
+import {
   getSlotsBySubject,
   getSlotsByTerm,
   getSubject,
@@ -30,8 +35,7 @@ function compareLibrarySubjects(left, right) {
   return left.name.localeCompare(right.name, "ja");
 }
 
-async function countTermRecords(index, termKey, activeSubjectIds) {
-  const range = IDBKeyRange.only(termKey);
+async function countTermRecords(index, range, activeSubjectIds) {
   let count = 0;
   let cursor = await index.openCursor(range);
   while (cursor) {
@@ -75,11 +79,12 @@ export async function loadDashboardSummary(termKey) {
   const subjectMap = mapSubjects(subjects);
   const activeSubjectIds = new Set(activeSubjects.map((subject) => subject.id));
   const db = await getDb();
-  const [notesCount, materialsCount, attendanceCount, recentNotes] = await Promise.all([
-    countTermRecords(db.transaction("notes").store.index("byTermKey"), termKey, activeSubjectIds),
-    countTermRecords(db.transaction("material_meta").store.index("byTermKey"), termKey, activeSubjectIds),
-    countTermRecords(db.transaction("attendance").store.index("byTermKey"), termKey, activeSubjectIds),
+  const [notesCount, materialsCount, attendanceCount, recentNotes, openTodosCount] = await Promise.all([
+    countTermRecords(db.transaction("notes").store.index("byTermKey"), IDBKeyRange.only(termKey), activeSubjectIds),
+    countTermRecords(db.transaction("material_meta").store.index("byTermKey"), IDBKeyRange.only(termKey), activeSubjectIds),
+    countTermRecords(db.transaction("attendance").store.index("byTermKey"), IDBKeyRange.only(termKey), activeSubjectIds),
     loadRecentActiveNotes(db.transaction("notes").store.index("byTermUpdated"), termKey, activeSubjectIds, subjectMap),
+    countTermRecords(db.transaction("todo_items").store.index("byTermStatus"), IDBKeyRange.only([termKey, "open"]), activeSubjectIds),
   ]);
 
   const todayKey = weekdayKeyForToday();
@@ -98,6 +103,7 @@ export async function loadDashboardSummary(termKey) {
     notesCount,
     materialsCount,
     attendanceCount,
+    openTodosCount,
     todayClasses,
     recentNotes,
   };
@@ -151,12 +157,14 @@ export async function loadSubjectHeader(subjectId) {
   const subject = await getSubject(subjectId);
   if (!subject) return null;
 
-  const [slots, periods, notesCount, materialsCount, attendanceCount] = await Promise.all([
+  const [slots, periods, notesCount, materialsCount, attendanceCount, openTodosCount, doneTodosCount] = await Promise.all([
     getSlotsBySubject(subjectId),
     loadPeriodDefinitions(subject.termKey),
     countNotesBySubject(subjectId),
     countMaterialsBySubject(subjectId),
     countAttendanceBySubject(subjectId),
+    countOpenTodosBySubject(subjectId),
+    countDoneTodosBySubject(subjectId),
   ]);
 
   return {
@@ -166,7 +174,9 @@ export async function loadSubjectHeader(subjectId) {
     notesCount,
     materialsCount,
     attendanceCount,
+    openTodosCount,
+    doneTodosCount,
   };
 }
 
-export { loadSubjectNotes, loadSubjectMaterials, loadSubjectAttendance };
+export { loadSubjectNotes, loadSubjectMaterials, loadSubjectAttendance, loadSubjectTodos };

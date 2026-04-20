@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Plus } from "lucide-react";
+import { CheckCircle2, Download, Plus, Upload } from "lucide-react";
 import {
   buildStructuredTermKey,
   deepEqualJson,
@@ -11,6 +11,9 @@ import {
 } from "../../lib/utils";
 import { Field, IconButton, Modal, SelectInput, TextInput } from "../../components/ui";
 import { errorMessage } from "../../lib/errors";
+import { downloadExportResult, prepareExport } from "../../services/exportService";
+import { applyImportArchive, readImportArchive } from "../../services/importService";
+import { ImportBackupModal } from "./ImportBackupModal";
 
 const TERM_SEASON_OPTIONS = [
   { value: "spring", label: "春学期" },
@@ -19,12 +22,12 @@ const TERM_SEASON_OPTIONS = [
 
 export function SettingsModal({
   open,
-  sourceTermKey,
   initialSettings,
   initialTermEditorState,
   loadTermEditorState,
   onClose,
   onSave,
+  onImportApplied,
 }) {
   const [draft, setDraft] = useState(null);
   const [initialSnapshot, setInitialSnapshot] = useState(null);
@@ -37,7 +40,15 @@ export function SettingsModal({
   const [saving, setSaving] = useState(false);
   const [switchingTerm, setSwitchingTerm] = useState(false);
   const [termSwitchError, setTermSwitchError] = useState("");
+  const [exportError, setExportError] = useState("");
+  const [exportMessage, setExportMessage] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [importPreviewState, setImportPreviewState] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
   const draftRef = useRef(null);
+  const importFileInputRef = useRef(null);
+  const importArchiveRef = useRef(null);
 
   function normalizePeriods(periods = []) {
     return periods.map((period) => ({
@@ -74,6 +85,11 @@ export function SettingsModal({
         : "",
     );
     setTermSwitchError("");
+    setExportError("");
+    setExportMessage("");
+    setImportError("");
+    importArchiveRef.current = null;
+    setImportPreviewState(null);
     setSwitchingTerm(false);
   }, [open, initialSettings, initialTermEditorState]);
 
@@ -144,7 +160,7 @@ export function SettingsModal({
   }
 
   function requestClose() {
-    if (saving || switchingTerm) return;
+    if (saving || switchingTerm || importing || importPreviewState) return;
     if (isDirty && !window.confirm("未保存の変更があります。破棄しますか？")) return;
     onClose();
   }
@@ -157,7 +173,7 @@ export function SettingsModal({
     }
     setSaving(true);
     try {
-      await onSave({ sourceTermKey, draft, periodsLoadedForTermKey: loadedPeriodsTermKey });
+      await onSave({ draft, periodsLoadedForTermKey: loadedPeriodsTermKey });
       onClose();
     } catch {
       return;
@@ -166,8 +182,99 @@ export function SettingsModal({
     }
   }
 
+  async function handleExport() {
+    setExportError("");
+    setExportMessage("");
+    setExporting(true);
+    try {
+      let result = await prepareExport({
+        includeFilesOverride: draftRef.current?.exportIncludeFiles,
+      });
+      if (result.status === "missing_files") {
+        const shouldContinue = window.confirm(
+          `資料ファイルが ${result.missingFiles.length} 件見つかりません。資料メタ情報だけでバックアップを続けますか？`,
+        );
+        if (!shouldContinue) return;
+        result = await prepareExport({
+          allowMissingFiles: true,
+          includeFilesOverride: draftRef.current?.exportIncludeFiles,
+        });
+      }
+      if (result.status !== "ready") {
+        throw new Error("バックアップを準備できませんでした。");
+      }
+      downloadExportResult(result);
+      setExportMessage(
+        result.missingFiles?.length
+          ? `バックアップをダウンロードしました。資料ファイル ${result.missingFiles.length} 件は欠損のため含まれていません。`
+          : "バックアップをダウンロードしました。",
+      );
+    } catch (error) {
+      setExportError(errorMessage(error, "バックアップの準備に失敗しました。"));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function handleOpenImportPicker() {
+    setImportError("");
+    if (importFileInputRef.current?.showPicker) {
+      importFileInputRef.current.showPicker();
+      return;
+    }
+    importFileInputRef.current?.click();
+  }
+
+  async function handleImportFileChange(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setImportError("");
+    try {
+      const nextState = await readImportArchive(file);
+      importArchiveRef.current = nextState.archive;
+      setImportPreviewState({
+        ...nextState.preview,
+        fileName: file.name,
+      });
+    } catch (error) {
+      importArchiveRef.current = null;
+      setImportPreviewState(null);
+      setImportError(errorMessage(error, "インポート ZIP を解析できませんでした。"));
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!importPreviewState || !importArchiveRef.current) return;
+    const shouldContinue = window.confirm(
+      "現在のローカルデータをすべて置き換えます。必要なら先にバックアップを取ってから続けてください。復元を実行しますか？",
+    );
+    if (!shouldContinue) return;
+
+    setImporting(true);
+    try {
+      const result = await applyImportArchive(importArchiveRef.current);
+      importArchiveRef.current = null;
+      setImportPreviewState(null);
+      setImportError("");
+      onClose();
+      onImportApplied?.(result);
+    } catch (error) {
+      setImportError(errorMessage(error, "バックアップの復元に失敗しました。"));
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
-    <Modal open={open} onClose={requestClose} title="設定" maxWidth="max-w-5xl">
+    <Modal
+      open={open}
+      onClose={requestClose}
+      lockClose={saving || switchingTerm || importing || Boolean(importPreviewState)}
+      title="設定"
+      maxWidth="max-w-5xl"
+    >
       {draft ? (
         <div className="space-y-6">
           <div className="grid gap-4 md:grid-cols-[180px_180px_auto]">
@@ -365,11 +472,67 @@ export function SettingsModal({
               ))}
             </div>
           </div>
+
+          <div className="space-y-4 border-t border-slate-100 pt-6">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900">バックアップと復元</h4>
+              <p className="mt-1 text-sm text-slate-500">
+                バックアップ ZIP は置き換え復元できます。復元前に現在データをエクスポートしておくと安全です。
+              </p>
+            </div>
+
+            <input
+              ref={importFileInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              onChange={handleImportFileChange}
+              className="sr-only"
+              aria-hidden="true"
+              tabIndex={-1}
+            />
+
+            <div className="flex flex-wrap gap-2">
+              <IconButton
+                icon={Download}
+                tone="light"
+                onClick={handleExport}
+                disabled={exporting || importing || saving || switchingTerm}
+              >
+                {exporting ? "バックアップ作成中…" : "バックアップをエクスポート"}
+              </IconButton>
+              <IconButton
+                icon={Upload}
+                tone="light"
+                onClick={handleOpenImportPicker}
+                disabled={exporting || importing || saving || switchingTerm}
+              >
+                復元 ZIP を選択
+              </IconButton>
+            </div>
+
+            {exportMessage ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                {exportMessage}
+              </div>
+            ) : null}
+
+            {exportError ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {exportError}
+              </div>
+            ) : null}
+
+            {!importPreviewState && importError ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                {importError}
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
       <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-6">
-        <IconButton tone="light" onClick={requestClose}>
+        <IconButton tone="light" onClick={requestClose} disabled={saving || switchingTerm || importing || Boolean(importPreviewState)}>
           キャンセル
         </IconButton>
         <IconButton
@@ -380,6 +543,19 @@ export function SettingsModal({
           保存
         </IconButton>
       </div>
+
+      <ImportBackupModal
+        open={Boolean(importPreviewState)}
+        preview={importPreviewState}
+        importing={importing}
+        error={importError}
+        onClose={() => {
+          importArchiveRef.current = null;
+          setImportError("");
+          setImportPreviewState(null);
+        }}
+        onConfirm={handleConfirmImport}
+      />
     </Modal>
   );
 }

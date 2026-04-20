@@ -1,8 +1,13 @@
 import React, { useMemo } from "react";
-import { Clock3, Download, Plus, Settings } from "lucide-react";
-import { DAY_DEFS } from "../../lib/constants";
+import { Download, Plus, Settings } from "lucide-react";
 import { slotKey, subjectColor } from "../../lib/utils";
 import { IconButton, Panel } from "../../components/ui";
+import { TimetableGrid } from "./TimetableGrid";
+import {
+  TIMETABLE_CELL_MIN_HEIGHT_CLASS,
+  TIMETABLE_EMPTY_CELL_CLASS,
+  TIMETABLE_FILLED_CELL_CLASS,
+} from "./timetableLayout";
 
 export function TimetablePage({ periods, slotItems, onSelectSubject, onCreateSubject, onOpenSettings, onExport, detailPanel }) {
   const slotMap = useMemo(() => {
@@ -16,7 +21,7 @@ export function TimetablePage({ periods, slotItems, onSelectSubject, onCreateSub
   }, [slotItems]);
 
   return (
-    <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.6fr)_360px]">
+    <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,384px)]">
       <Panel>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -32,69 +37,51 @@ export function TimetablePage({ periods, slotItems, onSelectSubject, onCreateSub
           </div>
         </div>
 
-        <div className="mt-5 overflow-x-auto">
-          <div className="min-w-[860px] rounded-3xl border border-slate-200 bg-slate-50/50 p-3">
-            <div className="grid grid-cols-[160px_repeat(6,minmax(0,1fr))] gap-3">
-              <div className="rounded-2xl bg-white p-3 text-sm font-medium text-slate-500 ring-1 ring-slate-200">コマ / 時間</div>
-              {DAY_DEFS.map((day) => (
-                <div key={day.key} className="rounded-2xl bg-white p-3 text-center text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
-                  {day.label}
-                </div>
-              ))}
-
-              {periods.filter((period) => period.isEnabled).map((period) => (
-                <React.Fragment key={period.id}>
-                  <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-                    <div className="flex items-center gap-2">
-                      <Clock3 className="h-4 w-4 text-slate-400" />
-                      <span className="text-sm font-semibold text-slate-900">{period.label}</span>
+        <div className="mt-5">
+          <TimetableGrid
+            periods={periods}
+            renderCell={({ day, period }) => {
+              const key = slotKey(day.key, period.periodNo);
+              const item = slotMap.get(key);
+              if (item) {
+                return (
+                  <button
+                    type="button"
+                    key={key}
+                    onClick={() => onSelectSubject(item.subject.id)}
+                    className={`${TIMETABLE_FILLED_CELL_CLASS} ${TIMETABLE_CELL_MIN_HEIGHT_CLASS}`}
+                    title={item.subject.name}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5 h-9 w-2 shrink-0 rounded-full" style={{ backgroundColor: subjectColor(item.subject) }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{item.subject.name}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500">{item.subject.room || "教室未設定"}</p>
+                      </div>
                     </div>
-                    <p className="mt-1 text-sm text-slate-500">{period.startTime} - {period.endTime}</p>
-                  </div>
-                  {DAY_DEFS.map((day) => {
-                    const item = slotMap.get(slotKey(day.key, period.periodNo));
-                    if (item) {
-                      return (
-                        <button
-                          type="button"
-                          key={slotKey(day.key, period.periodNo)}
-                          onClick={() => onSelectSubject(item.subject.id)}
-                          className="group rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="mt-0.5 h-12 w-2 rounded-full" style={{ backgroundColor: subjectColor(item.subject) }} />
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-semibold text-slate-900">{item.subject.name}</p>
-                              <p className="mt-1 truncate text-xs text-slate-500">{item.subject.room || "教室未設定"}</p>
-                              {item.subject.teacherName ? <p className="mt-1 truncate text-xs text-slate-400">{item.subject.teacherName}</p> : null}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    }
+                  </button>
+                );
+              }
 
-                    return (
-                      <button
-                        type="button"
-                        key={slotKey(day.key, period.periodNo)}
-                        onClick={() => onCreateSubject([slotKey(day.key, period.periodNo)])}
-                        className="flex min-h-[108px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/80 text-sm text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          <Plus className="h-4 w-4" />
-                          空きコマ
-                        </span>
-                      </button>
-                    );
-                  })}
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
+              return (
+                <button
+                  type="button"
+                  key={key}
+                  onClick={() => onCreateSubject([key])}
+                  className={`${TIMETABLE_EMPTY_CELL_CLASS} ${TIMETABLE_CELL_MIN_HEIGHT_CLASS}`}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Plus className="h-4 w-4" />
+                    空きコマ
+                  </span>
+                </button>
+              );
+            }}
+          />
         </div>
       </Panel>
 
-      {detailPanel}
+      <div className="min-w-0">{detailPanel}</div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { deleteAppDb, ensureSeedData, getDb, resetDbConnection } from "../schema";
-import { loadPeriodDefinitions, savePeriodDefinitionsInTransaction } from "./periods";
+import { loadPeriodDefinitions, savePeriodDefinitionsInTransaction, validateAndNormalizePeriodDrafts } from "./periods";
 
 describe("periods repository", () => {
   beforeEach(async () => {
@@ -47,5 +47,18 @@ describe("periods repository", () => {
     ).rejects.toMatchObject({ code: "INVALID_PERIOD" });
 
     await tx.done.catch(() => {});
+  });
+
+  it("rejects invalid time ranges through the shared period validation helper", async () => {
+    const currentPeriods = await loadPeriodDefinitions("2026-spring");
+
+    expect(() =>
+      validateAndNormalizePeriodDrafts(
+        "2026-spring",
+        currentPeriods.map((period) =>
+          period.periodNo === 1 ? { ...period, startTime: "10:40", endTime: "09:00" } : period,
+        ),
+      ),
+    ).toThrowError(/開始・終了時刻が不正/);
   });
 });

@@ -37,13 +37,13 @@ export function MaterialNoteModal({ open, material, onClose, onSave }) {
   }
 
   return (
-    <Modal open={open} onClose={requestClose} title="資料メモを編集" subtitle={material?.displayName || ""}>
+    <Modal open={open} onClose={requestClose} lockClose={saving} title="資料メモを編集" subtitle={material?.displayName || ""}>
       <TextArea value={draft.note} onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))} placeholder="配布資料の補足メモを書けます" className="min-h-[200px]" />
       <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-6">
-        <IconButton tone="light" onClick={requestClose}>
+        <IconButton tone="light" onClick={requestClose} disabled={saving}>
           キャンセル
         </IconButton>
-        <IconButton icon={CheckCircle2} onClick={handleSave}>
+        <IconButton icon={CheckCircle2} onClick={handleSave} disabled={saving}>
           保存
         </IconButton>
       </div>

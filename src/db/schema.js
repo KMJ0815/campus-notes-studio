@@ -322,6 +322,11 @@ function ensureIndexes(db, transaction) {
   ensureIndex(transaction.objectStore("material_meta"), "bySubjectId", "subjectId");
   ensureIndex(transaction.objectStore("material_meta"), "bySubjectCreated", ["subjectId", "createdAt"]);
   ensureIndex(transaction.objectStore("material_meta"), "byTermKey", "termKey");
+  ensureIndex(transaction.objectStore("todo_items"), "bySubjectId", "subjectId");
+  ensureIndex(transaction.objectStore("todo_items"), "bySubjectStatus", ["subjectId", "status"]);
+  ensureIndex(transaction.objectStore("todo_items"), "bySubjectStatusDue", ["subjectId", "status", "dueDate", "updatedAt"]);
+  ensureIndex(transaction.objectStore("todo_items"), "byTermKey", "termKey");
+  ensureIndex(transaction.objectStore("todo_items"), "byTermStatus", ["termKey", "status"]);
   ensureIndex(transaction.objectStore("period_definitions"), "byTermKey", "termKey");
   ensureIndex(transaction.objectStore("period_definitions"), "byTermPeriod", ["termKey", "periodNo"], { unique: true });
 }
@@ -338,6 +343,7 @@ export async function getDb() {
         ensureStore(db, transaction, "attendance", { keyPath: "id" });
         ensureStore(db, transaction, "material_meta", { keyPath: "id" });
         ensureStore(db, transaction, "material_files", { keyPath: "id" });
+        ensureStore(db, transaction, "todo_items", { keyPath: "id" });
         ensureStore(db, transaction, "period_definitions", { keyPath: "id" });
 
         if (oldVersion < 2) await runMigration(transaction);
@@ -361,6 +367,9 @@ export async function getDb() {
         if (oldVersion < 8) {
           await migrateTermMeta(transaction);
           await migrateAttendanceSnapshots(transaction);
+        }
+        if (oldVersion < 9) {
+          // todo_items was introduced in v9; no record backfill is required.
         }
 
         ensureIndexes(db, transaction);

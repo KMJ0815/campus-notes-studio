@@ -2,6 +2,21 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsModal } from "./SettingsModal";
 
+const prepareExportMock = vi.fn();
+const downloadExportResultMock = vi.fn();
+const readImportArchiveMock = vi.fn();
+const applyImportArchiveMock = vi.fn();
+
+vi.mock("../../services/exportService", () => ({
+  prepareExport: (...args) => prepareExportMock(...args),
+  downloadExportResult: (...args) => downloadExportResultMock(...args),
+}));
+
+vi.mock("../../services/importService", () => ({
+  readImportArchive: (...args) => readImportArchiveMock(...args),
+  applyImportArchive: (...args) => applyImportArchiveMock(...args),
+}));
+
 const initialSettings = {
   currentTermKey: "2026-spring",
   termLabel: "2026年度 春学期",
@@ -35,20 +50,21 @@ function renderModal(overrides = {}) {
   const loadTermEditorState = overrides.loadTermEditorState || vi.fn().mockResolvedValue(buildTermEditorState());
   const onClose = overrides.onClose || vi.fn();
   const onSave = overrides.onSave || vi.fn().mockResolvedValue(undefined);
+  const onImportApplied = overrides.onImportApplied || vi.fn();
 
   render(
     <SettingsModal
       open
-      sourceTermKey="2026-spring"
       initialSettings={overrides.initialSettings || initialSettings}
       initialTermEditorState={overrides.initialTermEditorState || buildTermEditorState()}
       loadTermEditorState={loadTermEditorState}
       onClose={onClose}
       onSave={onSave}
+      onImportApplied={onImportApplied}
     />,
   );
 
-  return { loadTermEditorState, onClose, onSave };
+  return { loadTermEditorState, onClose, onSave, onImportApplied };
 }
 
 function setPendingTerm(year, season) {
@@ -58,6 +74,10 @@ function setPendingTerm(year, season) {
 
 afterEach(() => {
   cleanup();
+  prepareExportMock.mockReset();
+  downloadExportResultMock.mockReset();
+  readImportArchiveMock.mockReset();
+  applyImportArchiveMock.mockReset();
 });
 
 describe("SettingsModal", () => {
@@ -239,7 +259,6 @@ describe("SettingsModal", () => {
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledWith({
-        sourceTermKey: "2026-spring",
         draft: expect.objectContaining({
           currentTermKey: "2026-fall",
           termLabel: "2026年度 秋学期",
@@ -247,6 +266,22 @@ describe("SettingsModal", () => {
         periodsLoadedForTermKey: "2026-fall",
       });
     });
+  });
+
+  it("keeps the settings modal open when save fails with a stale update", async () => {
+    const onClose = vi.fn();
+    const onSave = vi.fn().mockRejectedValue(Object.assign(new Error("stale"), { code: "STALE_UPDATE" }));
+
+    renderModal({ onClose, onSave });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalled();
+    });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue("2026年度 春学期")).not.toBeNull();
   });
 
   it("uses the computed next period number for both periodNo and label when adding a row", () => {
@@ -271,5 +306,294 @@ describe("SettingsModal", () => {
 
     expect(screen.getByDisplayValue("4限")).not.toBeNull();
     expect(screen.getAllByDisplayValue("4").length).toBeGreaterThan(0);
+  });
+
+  it("exports a backup from the settings entrypoint", async () => {
+    prepareExportMock.mockResolvedValue({
+      status: "ready",
+      blob: new Blob(["zip"]),
+      filename: "backup.zip",
+      missingFiles: [],
+    });
+    renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "バックアップをエクスポート" }));
+
+    await waitFor(() => {
+      expect(prepareExportMock).toHaveBeenCalledWith({
+        includeFilesOverride: true,
+      });
+      expect(downloadExportResultMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filename: "backup.zip",
+        }),
+      );
+      expect(screen.getByText("バックアップをダウンロードしました。")).not.toBeNull();
+    });
+  });
+
+  it("uses the unsaved exportIncludeFiles toggle for exports from the settings modal", async () => {
+    prepareExportMock.mockResolvedValue({
+      status: "ready",
+      blob: new Blob(["zip"]),
+      filename: "backup.zip",
+      missingFiles: [],
+    });
+    renderModal();
+
+    fireEvent.click(screen.getByLabelText("エクスポート時に資料ファイルも ZIP に含める"));
+    fireEvent.click(screen.getByRole("button", { name: "バックアップをエクスポート" }));
+
+    await waitFor(() => {
+      expect(prepareExportMock).toHaveBeenCalledWith({
+        includeFilesOverride: false,
+      });
+    });
+  });
+
+  it("shows an import preview before applying a restore", async () => {
+    readImportArchiveMock.mockResolvedValue({
+      preview: {
+        version: 4,
+        exportedAt: "2026-04-20T00:00:00.000Z",
+        currentTermKey: "2026-fall",
+        currentTermLabel: "2026年度 秋学期",
+        counts: {
+          termMeta: 1,
+          periods: 5,
+          subjects: 2,
+          slots: 2,
+          notes: 3,
+          attendance: 1,
+          todos: 4,
+          materials: 1,
+          materialFiles: 1,
+        },
+        warnings: [],
+      },
+      archive: { token: "archive" },
+    });
+    renderModal();
+
+    const fileInput = document.querySelector('input[type="file"]');
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["zip"], "backup.zip", { type: "application/zip" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("バックアップを復元")).not.toBeNull();
+      expect(screen.getByText("backup.zip")).not.toBeNull();
+      expect(screen.getByText("ToDo")).not.toBeNull();
+    });
+  });
+
+  it("shows an inline error when the import archive is invalid", async () => {
+    readImportArchiveMock.mockRejectedValue(new Error("manifest.json を解析できませんでした。"));
+    renderModal();
+
+    const fileInput = document.querySelector('input[type="file"]');
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["zip"], "broken.zip", { type: "application/zip" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("manifest.json を解析できませんでした。")).not.toBeNull();
+    });
+  });
+
+  it("keeps export and import errors in separate state buckets", async () => {
+    prepareExportMock.mockRejectedValue(new Error("export failed"));
+    readImportArchiveMock.mockRejectedValue(new Error("import failed"));
+    renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "バックアップをエクスポート" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("export failed")).not.toBeNull();
+    });
+
+    const fileInput = document.querySelector('input[type="file"]');
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["zip"], "broken.zip", { type: "application/zip" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("export failed")).not.toBeNull();
+      expect(screen.getByText("import failed")).not.toBeNull();
+    });
+  });
+
+  it("applies a successful restore via the parent callback instead of reloading", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const onClose = vi.fn();
+    const onImportApplied = vi.fn();
+    const result = {
+      warnings: [{ code: "MISSING_MATERIAL_FILE", materialId: "material-1" }],
+      importedCounts: { notes: 3 },
+    };
+
+    readImportArchiveMock.mockResolvedValue({
+      preview: {
+        version: 4,
+        exportedAt: "2026-04-20T00:00:00.000Z",
+        currentTermKey: "2026-fall",
+        currentTermLabel: "2026年度 秋学期",
+        counts: {
+          termMeta: 1,
+          periods: 5,
+          subjects: 2,
+          slots: 2,
+          notes: 3,
+          attendance: 1,
+          todos: 4,
+          materials: 1,
+          materialFiles: 1,
+        },
+        warnings: [],
+      },
+      archive: { token: "archive" },
+    });
+    applyImportArchiveMock.mockResolvedValue(result);
+
+    renderModal({ onClose, onImportApplied });
+
+    const fileInput = document.querySelector('input[type="file"]');
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["zip"], "backup.zip", { type: "application/zip" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("backup.zip")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "現在のデータを置き換えて復元" }));
+
+    await waitFor(() => {
+      expect(applyImportArchiveMock).toHaveBeenCalledWith({ token: "archive" });
+      expect(onClose).toHaveBeenCalled();
+      expect(onImportApplied).toHaveBeenCalledWith(result);
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("keeps both modals locked while an import is running", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const onClose = vi.fn();
+    readImportArchiveMock.mockResolvedValue({
+      preview: {
+        version: 4,
+        exportedAt: "2026-04-20T00:00:00.000Z",
+        currentTermKey: "2026-fall",
+        currentTermLabel: "2026年度 秋学期",
+        counts: {
+          termMeta: 1,
+          periods: 5,
+          subjects: 2,
+          slots: 2,
+          notes: 3,
+          attendance: 1,
+          todos: 4,
+          materials: 1,
+          materialFiles: 1,
+        },
+        warnings: [],
+      },
+      archive: { token: "archive" },
+    });
+    applyImportArchiveMock.mockImplementation(() => new Promise(() => {}));
+    renderModal({ onClose });
+
+    const fileInput = document.querySelector('input[type="file"]');
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["zip"], "backup.zip", { type: "application/zip" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("バックアップを復元")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "現在のデータを置き換えて復元" }));
+
+    await waitFor(() => {
+      expect(applyImportArchiveMock).toHaveBeenCalledWith({ token: "archive" });
+      expect(screen.getByRole("button", { name: "復元中…" })).not.toBeNull();
+    });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    const overlays = document.querySelectorAll(".fixed.inset-0");
+    fireEvent.mouseDown(overlays[overlays.length - 1]);
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText("バックアップを復元")).not.toBeNull();
+    confirmSpy.mockRestore();
+  });
+
+  it("keeps the import preview open after a restore failure and allows retry", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    readImportArchiveMock.mockResolvedValue({
+      preview: {
+        version: 4,
+        exportedAt: "2026-04-20T00:00:00.000Z",
+        currentTermKey: "2026-fall",
+        currentTermLabel: "2026年度 秋学期",
+        counts: {
+          termMeta: 1,
+          periods: 5,
+          subjects: 2,
+          slots: 2,
+          notes: 3,
+          attendance: 1,
+          todos: 4,
+          materials: 1,
+          materialFiles: 1,
+        },
+        warnings: [],
+      },
+      archive: { token: "archive" },
+    });
+    applyImportArchiveMock.mockRejectedValue(new Error("restore failed"));
+
+    renderModal();
+
+    const fileInput = document.querySelector('input[type="file"]');
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["zip"], "backup.zip", { type: "application/zip" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("backup.zip")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "現在のデータを置き換えて復元" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("restore failed")).not.toBeNull();
+      expect(screen.getByText("backup.zip")).not.toBeNull();
+      expect(applyImportArchiveMock).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "現在のデータを置き換えて復元" }));
+
+    await waitFor(() => {
+      expect(applyImportArchiveMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText("restore failed")).not.toBeNull();
+      expect(screen.getByText("backup.zip")).not.toBeNull();
+    });
+
+    confirmSpy.mockRestore();
   });
 });

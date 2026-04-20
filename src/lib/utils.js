@@ -288,6 +288,20 @@ export function emptyAttendanceDraft(subjectId, lectureDate = todayIso()) {
   };
 }
 
+export function emptyTodoDraft(subjectId, overrides = {}) {
+  return {
+    id: null,
+    subjectId,
+    title: "",
+    memo: "",
+    dueDate: "",
+    status: "open",
+    completedAt: null,
+    baseUpdatedAt: null,
+    ...overrides,
+  };
+}
+
 export function emptyMaterialMetaDraft(meta = {}) {
   return {
     id: meta.id || null,
@@ -314,6 +328,29 @@ export function formatSlotLabel(slot, periods) {
   return `${dayLabelForKey(slot.weekday)} ${period?.label || `${slot.periodNo}限`}${
     period?.startTime && period?.endTime ? ` (${period.startTime}-${period.endTime})` : ""
   }`;
+}
+
+export function sortTodos(items = []) {
+  return [...items].sort((left, right) => {
+    const leftDone = left.status === "done";
+    const rightDone = right.status === "done";
+    if (leftDone !== rightDone) return leftDone ? 1 : -1;
+
+    if (!leftDone) {
+      const leftDue = normalizeDateOnlyInputValue(left.dueDate);
+      const rightDue = normalizeDateOnlyInputValue(right.dueDate);
+      if (leftDue && !rightDue) return -1;
+      if (!leftDue && rightDue) return 1;
+      if (leftDue !== rightDue) return leftDue < rightDue ? -1 : 1;
+    } else {
+      const completedDiff =
+        new Date(right.completedAt || right.updatedAt || right.createdAt || 0) -
+        new Date(left.completedAt || left.updatedAt || left.createdAt || 0);
+      if (completedDiff !== 0) return completedDiff;
+    }
+
+    return new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+  });
 }
 
 export function fileExtension(name = "") {

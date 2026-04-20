@@ -16,7 +16,7 @@ export const DEFAULT_PERIOD_TEMPLATES = [
 ];
 
 export const DB_NAME = "campus-notes-studio";
-export const DB_VERSION = 8;
+export const DB_VERSION = 9;
 export const SETTINGS_ID = "app-settings";
 export const TERM_META_STORE = "term_meta";
 export const DEFAULT_TERM_KEY = "2026-spring";
@@ -51,10 +51,16 @@ export const DETAIL_TABS = {
   notes: "notes",
   materials: "materials",
   attendance: "attendance",
+  todos: "todos",
 };
 
 export const ATTENDANCE_STATUS_OPTIONS = [
   { value: "present", label: "出席" },
   { value: "late", label: "遅刻" },
   { value: "absent", label: "欠席" },
+];
+
+export const TODO_STATUS_OPTIONS = [
+  { value: "open", label: "未完了" },
+  { value: "done", label: "完了" },
 ];

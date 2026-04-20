@@ -25,11 +25,24 @@ describe("exportService", () => {
     await db.put("material_meta", {
       id: "material-1",
       subjectId: "subject-1",
+      termKey: "2026-fall",
       displayName: "lecture.pdf",
       mimeType: "application/pdf",
       fileExt: "pdf",
       sizeBytes: 123,
       note: "",
+      createdAt: "2026-04-17T12:00:00.000Z",
+      updatedAt: "2026-04-17T12:00:00.000Z",
+    });
+    await db.put("todo_items", {
+      id: "todo-1",
+      subjectId: "subject-1",
+      termKey: "2026-fall",
+      title: "課題提出",
+      memo: "",
+      dueDate: "2026-04-20",
+      status: "open",
+      completedAt: null,
       createdAt: "2026-04-17T12:00:00.000Z",
       updatedAt: "2026-04-17T12:00:00.000Z",
     });
@@ -49,7 +62,7 @@ describe("exportService", () => {
 
     const zip = await JSZip.loadAsync(result.blob);
     const manifest = JSON.parse(await zip.file("data/manifest.json").async("string"));
-    expect(manifest.version).toBe(3);
+    expect(manifest.version).toBe(4);
     expect(manifest.termMeta).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -58,5 +71,36 @@ describe("exportService", () => {
         }),
       ]),
     );
+    expect(manifest.todos).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "todo-1",
+          title: "課題提出",
+        }),
+      ]),
+    );
+  });
+
+  it("honors includeFilesOverride without mutating persisted settings", async () => {
+    const db = await getDb();
+    await db.put("material_meta", {
+      id: "material-1",
+      subjectId: "subject-1",
+      termKey: "2026-spring",
+      displayName: "lecture.pdf",
+      mimeType: "application/pdf",
+      fileExt: "pdf",
+      sizeBytes: 123,
+      note: "",
+      createdAt: "2026-04-17T12:00:00.000Z",
+      updatedAt: "2026-04-17T12:00:00.000Z",
+    });
+
+    const result = await prepareExport({ includeFilesOverride: false });
+    expect(result.status).toBe("ready");
+    expect(result.missingFiles).toHaveLength(0);
+
+    const settings = await db.get("settings", "app-settings");
+    expect(settings.exportIncludeFiles).toBe(true);
   });
 });

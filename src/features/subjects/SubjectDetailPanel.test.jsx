@@ -14,6 +14,14 @@ describe("SubjectDetailPanel", () => {
     vi.useRealTimers();
   });
 
+  function createDeferred() {
+    let resolve;
+    const promise = new Promise((resolver) => {
+      resolve = resolver;
+    });
+    return { promise, resolve };
+  }
+
   it("exposes accessible labels for icon-only actions", () => {
     render(
       <SubjectDetailPanel
@@ -417,5 +425,638 @@ describe("SubjectDetailPanel", () => {
 
     await vi.runAllTimersAsync();
     expect(screen.queryByRole("button", { name: "新規入力へ戻す" })).toBeNull();
+  });
+
+  it("adds todos from the quick add row", async () => {
+    const onSaveTodo = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.todos}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={onSaveTodo}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("ToDoタイトル"), { target: { value: "レポート提出" } });
+    fireEvent.change(screen.getByLabelText("ToDo期限日"), { target: { value: "2026-04-21" } });
+    fireEvent.click(screen.getByRole("button", { name: "追加" }));
+
+    await Promise.resolve();
+    expect(onSaveTodo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: "subject-1",
+        title: "レポート提出",
+        dueDate: "2026-04-21",
+        status: "open",
+      }),
+    );
+  });
+
+  it("submits quick add from Enter without using the add button click", async () => {
+    const onSaveTodo = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.todos}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={onSaveTodo}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("ToDoタイトル"), { target: { value: "提出物を確認" } });
+    fireEvent.submit(screen.getByRole("button", { name: "追加" }).closest("form"));
+
+    await Promise.resolve();
+    expect(onSaveTodo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "提出物を確認",
+      }),
+    );
+  });
+
+  it("prevents duplicate quick-add submits and only locks the quick-add controls while saving", async () => {
+    const deferred = createDeferred();
+    const existingTodo = {
+      id: "todo-1",
+      subjectId: "subject-1",
+      title: "参考文献を読む",
+      memo: "",
+      dueDate: "2026-04-22",
+      status: "open",
+      completedAt: null,
+      createdAt: "2026-04-18T09:00:00.000Z",
+      updatedAt: "2026-04-18T09:00:00.000Z",
+    };
+    const onSaveTodo = vi
+      .fn()
+      .mockImplementationOnce(() => deferred.promise)
+      .mockResolvedValue(undefined);
+    const onDeleteTodo = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 1,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.todos}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[existingTodo]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={onSaveTodo}
+        onDeleteTodo={onDeleteTodo}
+      />,
+    );
+
+    const titleInput = screen.getByLabelText("ToDoタイトル");
+    const dueDateInput = screen.getByLabelText("ToDo期限日");
+    const addButton = screen.getByRole("button", { name: "追加" });
+
+    fireEvent.change(titleInput, { target: { value: "レポート提出" } });
+    fireEvent.change(dueDateInput, { target: { value: "2026-04-21" } });
+
+    fireEvent.click(addButton);
+    fireEvent.click(addButton);
+
+    expect(onSaveTodo).toHaveBeenCalledTimes(1);
+    expect(titleInput.disabled).toBe(true);
+    expect(dueDateInput.disabled).toBe(true);
+    expect(addButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "ToDo を編集" }));
+    expect(screen.getByDisplayValue("参考文献を読む")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "完了にする" }));
+    expect(onSaveTodo).toHaveBeenCalledTimes(2);
+
+    const deleteButton = screen.getByRole("button", { name: "ToDo を削除" });
+    expect(deleteButton.disabled).toBe(true);
+    fireEvent.click(deleteButton);
+    expect(onDeleteTodo).not.toHaveBeenCalled();
+
+    deferred.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(titleInput.disabled).toBe(false);
+    expect(dueDateInput.disabled).toBe(false);
+    expect(addButton.disabled).toBe(true);
+    expect(titleInput.value).toBe("");
+    expect(dueDateInput.value).toBe("");
+
+    fireEvent.change(titleInput, { target: { value: "次の課題" } });
+    expect(addButton.disabled).toBe(false);
+  });
+
+  it("keeps todo drafts when only the subject slots change", async () => {
+    const props = {
+      detailTab: DETAIL_TABS.todos,
+      tabLoading: false,
+      notes: [],
+      materials: [],
+      attendance: [],
+      todos: [
+        {
+          id: "todo-1",
+          subjectId: "subject-1",
+          title: "参考文献を読む",
+          memo: "",
+          dueDate: "2026-04-22",
+          status: "open",
+          completedAt: null,
+          createdAt: "2026-04-18T09:00:00.000Z",
+          updatedAt: "2026-04-18T09:00:00.000Z",
+        },
+      ],
+      onChangeTab: vi.fn(),
+      onEditSubject: vi.fn(),
+      onArchiveSubject: vi.fn(),
+      onCreateNote: vi.fn(),
+      onEditNote: vi.fn(),
+      onDeleteNote: vi.fn(),
+      onUploadMaterials: vi.fn(),
+      onOpenMaterial: vi.fn(),
+      onEditMaterial: vi.fn(),
+      onDeleteMaterial: vi.fn(),
+      onMaterialPickerError: vi.fn(),
+      onMaterialPickerOpen: vi.fn(),
+      onSaveAttendance: vi.fn(),
+      onDeleteAttendance: vi.fn(),
+      loadAttendanceSlotOptions: vi.fn().mockResolvedValue([]),
+      onSaveTodo: vi.fn().mockResolvedValue(undefined),
+      onDeleteTodo: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { rerender } = render(
+      <SubjectDetailPanel
+        {...props}
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [{ periodNo: 1, label: "1限", startTime: "09:00", endTime: "10:40" }],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 1,
+          doneTodosCount: 0,
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("ToDoタイトル"), { target: { value: "下書きを保持" } });
+    fireEvent.click(screen.getByRole("button", { name: "ToDo を編集" }));
+    fireEvent.change(screen.getByDisplayValue("参考文献を読む"), { target: { value: "参考文献を読む（更新）" } });
+
+    rerender(
+      <SubjectDetailPanel
+        {...props}
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [
+            {
+              id: "slot-1",
+              weekday: "mon",
+              periodNo: 1,
+              activeSlotKey: "2026-spring:mon:1",
+            },
+          ],
+          periods: [{ periodNo: 1, label: "1限", startTime: "09:00", endTime: "10:40" }],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 1,
+          doneTodosCount: 0,
+        }}
+      />,
+    );
+
+    await vi.runAllTimersAsync();
+
+    expect(screen.getByLabelText("ToDoタイトル").value).toBe("下書きを保持");
+    expect(screen.getByDisplayValue("参考文献を読む（更新）")).not.toBeNull();
+  });
+
+  it("prevents duplicate row actions while a todo item is pending", async () => {
+    const deferred = createDeferred();
+    const todo = {
+      id: "todo-1",
+      subjectId: "subject-1",
+      title: "参考文献を読む",
+      memo: "",
+      dueDate: "2026-04-22",
+      status: "open",
+      completedAt: null,
+      createdAt: "2026-04-18T09:00:00.000Z",
+      updatedAt: "2026-04-18T09:00:00.000Z",
+    };
+    const onSaveTodo = vi.fn().mockImplementation(() => deferred.promise);
+    const onDeleteTodo = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 1,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.todos}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[todo]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={onSaveTodo}
+        onDeleteTodo={onDeleteTodo}
+      />,
+    );
+
+    const toggleButton = screen.getByRole("button", { name: "完了にする" });
+    fireEvent.click(toggleButton);
+    fireEvent.click(toggleButton);
+
+    expect(onSaveTodo).toHaveBeenCalledTimes(1);
+    expect(toggleButton.disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "ToDo を編集" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "ToDo を削除" }).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "ToDo を削除" }));
+    expect(onDeleteTodo).not.toHaveBeenCalled();
+
+    deferred.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(screen.getByRole("button", { name: "完了にする" }).disabled).toBe(false);
+  });
+
+  it("edits an existing todo in the modal", async () => {
+    const onSaveTodo = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 1,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.todos}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[
+          {
+            id: "todo-1",
+            subjectId: "subject-1",
+            title: "参考文献を読む",
+            memo: "",
+            dueDate: "2026-04-22",
+            status: "open",
+            completedAt: null,
+            createdAt: "2026-04-18T09:00:00.000Z",
+            updatedAt: "2026-04-18T09:00:00.000Z",
+          },
+        ]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={onSaveTodo}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "ToDo を編集" }));
+    fireEvent.change(screen.getByDisplayValue("参考文献を読む"), { target: { value: "参考文献を読む（更新）" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await Promise.resolve();
+    expect(onSaveTodo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "todo-1",
+        title: "参考文献を読む（更新）",
+        baseUpdatedAt: "2026-04-18T09:00:00.000Z",
+      }),
+    );
+  });
+
+  it("keeps the todo editor open when save fails", async () => {
+    const onSaveTodo = vi.fn().mockRejectedValue(Object.assign(new Error("stale"), { code: "STALE_UPDATE" }));
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 1,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.todos}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[
+          {
+            id: "todo-1",
+            subjectId: "subject-1",
+            title: "参考文献を読む",
+            memo: "",
+            dueDate: "2026-04-22",
+            status: "open",
+            completedAt: null,
+            createdAt: "2026-04-18T09:00:00.000Z",
+            updatedAt: "2026-04-18T09:00:00.000Z",
+          },
+        ]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={onSaveTodo}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "ToDo を編集" }));
+    fireEvent.change(screen.getByDisplayValue("参考文献を読む"), { target: { value: "参考文献を読む（更新）" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+
+    expect(onSaveTodo).toHaveBeenCalledTimes(1);
+    expect(screen.getByDisplayValue("参考文献を読む（更新）")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "ToDo を編集" })).not.toBeNull();
+  });
+
+  it("prompts before closing a dirty todo editor", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 1,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.todos}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[
+          {
+            id: "todo-1",
+            subjectId: "subject-1",
+            title: "参考文献を読む",
+            memo: "",
+            dueDate: "2026-04-22",
+            status: "open",
+            completedAt: null,
+            createdAt: "2026-04-18T09:00:00.000Z",
+            updatedAt: "2026-04-18T09:00:00.000Z",
+          },
+        ]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn().mockResolvedValue(undefined)}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "ToDo を編集" }));
+    fireEvent.change(screen.getByDisplayValue("参考文献を読む"), { target: { value: "参考文献を読む（更新）" } });
+    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("未保存の変更があります。破棄しますか？");
+    expect(screen.getByDisplayValue("参考文献を読む（更新）")).not.toBeNull();
+    confirmSpy.mockRestore();
   });
 });

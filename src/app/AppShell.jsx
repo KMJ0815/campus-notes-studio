@@ -8,6 +8,12 @@ function pageTitle(page) {
   return "ダッシュボード";
 }
 
+function pageLead(page) {
+  if (page === PAGE_DEFS.timetable) return "曜日と時限ごとの授業予定を整理";
+  if (page === PAGE_DEFS.library) return "授業ごとの資料と記録を横断して確認";
+  return "今学期の動きと最近の更新を確認";
+}
+
 export function AppShell({
   page,
   onPageChange,
@@ -20,25 +26,46 @@ export function AppShell({
   onExport,
   children,
 }) {
+  const currentTermLabel = settings.termLabel || settings.currentTermKey;
+  const todayClassesCount = stats.todayClasses.length;
+  const openTodosCount = stats.openTodosCount ?? 0;
+
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-900">
       <div className="mx-auto grid max-w-[1880px] gap-6 p-4 md:grid-cols-[280px_minmax(0,1fr)] md:p-6">
         <aside className="space-y-4">
-          <Panel className="overflow-hidden bg-slate-950 text-white ring-0">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-white/10 p-3">
-                <GraduationCap className="h-6 w-6" />
+          <section aria-label="現在の学期ステータス">
+            <Panel className="overflow-hidden bg-slate-50 px-4 py-4 text-slate-900 ring-1 ring-slate-200">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-slate-400">Campus Notes Studio</p>
+                  <div className="mt-3 flex items-start gap-3">
+                    <div className="rounded-2xl bg-slate-900 p-2.5 text-white">
+                      <GraduationCap className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-slate-500">現在の学期</p>
+                      <h1 className="mt-1 truncate text-lg font-semibold">{currentTermLabel}</h1>
+                      <p className="mt-1 text-sm text-slate-600">今日の授業と未完了タスクをすぐ確認できます。</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="shrink-0">
+                  <Chip tone={pwaState.isOnline ? "emerald" : "rose"}>{pwaState.isOnline ? "オンライン" : "オフライン"}</Chip>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-white/70">授業ノート管理</p>
-                <h1 className="text-lg font-semibold">Campus Notes Studio</h1>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
+                  <p className="text-[11px] text-slate-500">今日の授業</p>
+                  <p className="mt-1 text-lg font-semibold">{todayClassesCount}件</p>
+                </div>
+                <div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
+                  <p className="text-[11px] text-slate-500">未完了ToDo</p>
+                  <p className="mt-1 text-lg font-semibold">{openTodosCount}件</p>
+                </div>
               </div>
-            </div>
-            <div className="mt-4 rounded-2xl bg-white/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-white/60">Current term</p>
-              <p className="mt-2 text-base font-semibold">{settings.termLabel || settings.currentTermKey}</p>
-            </div>
-          </Panel>
+            </Panel>
+          </section>
 
           <div className="space-y-2">
             <AppShellButton active={page === PAGE_DEFS.dashboard} icon={Home} label="ダッシュボード" onClick={() => onPageChange(PAGE_DEFS.dashboard)} />
@@ -61,31 +88,8 @@ export function AppShell({
             </div>
           </Panel>
 
-          <Panel>
-            <p className="text-sm font-semibold text-slate-900">今学期の状況</p>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-2xl bg-slate-50 p-3">
-                <p className="text-xs text-slate-500">授業</p>
-                <p className="mt-1 text-xl font-semibold">{stats.activeSubjectsCount}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-3">
-                <p className="text-xs text-slate-500">ノート</p>
-                <p className="mt-1 text-xl font-semibold">{stats.notesCount}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-3">
-                <p className="text-xs text-slate-500">資料</p>
-                <p className="mt-1 text-xl font-semibold">{stats.materialsCount}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-3">
-                <p className="text-xs text-slate-500">出席記録</p>
-                <p className="mt-1 text-xl font-semibold">{stats.attendanceCount}</p>
-              </div>
-            </div>
-          </Panel>
-
           <Panel className="bg-slate-50/70">
             <div className="flex flex-wrap items-center gap-2">
-              <Chip tone={pwaState.isOnline ? "emerald" : "rose"}>{pwaState.isOnline ? "オンライン" : "オフライン"}</Chip>
               {pwaState.isInstalledApp ? (
                 <Chip tone="indigo">インストール済み</Chip>
               ) : pwaState.installPromptEvent ? (
@@ -106,7 +110,7 @@ export function AppShell({
         <main className="space-y-6">
           <div className="flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm text-slate-500">{settings.termLabel || settings.currentTermKey}</p>
+              <p className="text-sm text-slate-500">{pageLead(page)}</p>
               <h2 className="text-2xl font-semibold text-slate-900">{pageTitle(page)}</h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">

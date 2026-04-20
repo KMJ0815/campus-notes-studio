@@ -14,13 +14,14 @@ export async function loadPeriodDefinitions(termKey) {
   );
 }
 
-export function normalizePeriodDrafts(termKey, periodsDraft) {
+export function normalizePeriodDrafts(termKey, periodsDraft, options = {}) {
+  const { preserveExistingId = false } = options;
   return sortPeriods(
     periodsDraft.map((period) => {
       const periodNo = Number(period.periodNo);
       return {
         ...period,
-        id: buildPeriodId(termKey, periodNo),
+        id: preserveExistingId && period.id ? period.id : buildPeriodId(termKey, periodNo),
         termKey,
         periodNo,
         isEnabled: Boolean(period.isEnabled),
@@ -32,18 +33,8 @@ export function normalizePeriodDrafts(termKey, periodsDraft) {
   );
 }
 
-export async function termHasPeriodDefinitions(termKey, tx = null) {
-  if (tx) {
-    const periods = await tx.objectStore("period_definitions").index("byTermKey").getAll(termKey);
-    return periods.length > 0;
-  }
-  const db = await getDb();
-  const periods = await db.getAllFromIndex("period_definitions", "byTermKey", termKey);
-  return periods.length > 0;
-}
-
-export async function savePeriodDefinitionsInTransaction(tx, termKey, periodsDraft) {
-  const sanitized = normalizePeriodDrafts(termKey, periodsDraft);
+export function validateAndNormalizePeriodDrafts(termKey, periodsDraft, options = {}) {
+  const sanitized = normalizePeriodDrafts(termKey, periodsDraft, options);
 
   if (sanitized.length === 0) {
     throw createAppError("INVALID_PERIOD", "コマ時間は 1 件以上必要です。");
@@ -70,6 +61,22 @@ export async function savePeriodDefinitionsInTransaction(tx, termKey, periodsDra
       `開始・終了時刻が不正なコマがあります。${invalidTimePeriods.map((period) => period.label || `${period.periodNo}限`).join("、")}`,
     );
   }
+
+  return sanitized;
+}
+
+export async function termHasPeriodDefinitions(termKey, tx = null) {
+  if (tx) {
+    const periods = await tx.objectStore("period_definitions").index("byTermKey").getAll(termKey);
+    return periods.length > 0;
+  }
+  const db = await getDb();
+  const periods = await db.getAllFromIndex("period_definitions", "byTermKey", termKey);
+  return periods.length > 0;
+}
+
+export async function savePeriodDefinitionsInTransaction(tx, termKey, periodsDraft) {
+  const sanitized = validateAndNormalizePeriodDrafts(termKey, periodsDraft);
 
   const periodStore = tx.objectStore("period_definitions");
   const slotStore = tx.objectStore("slots");

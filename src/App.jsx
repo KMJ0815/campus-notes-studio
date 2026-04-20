@@ -33,6 +33,7 @@ import {
   getAttendanceSlotOptions,
   saveAttendance,
 } from "./db/repositories/attendance";
+import { deleteTodo, saveTodo } from "./db/repositories/todos";
 import {
   deleteMaterial,
   openMaterial,
@@ -47,6 +48,7 @@ import {
   loadSubjectHeader,
   loadSubjectMaterials,
   loadSubjectNotes,
+  loadSubjectTodos,
   loadTimetable,
 } from "./services/loaders";
 import { downloadExportResult, prepareExport } from "./services/exportService";
@@ -64,13 +66,34 @@ const EMPTY_STATS = {
   notesCount: 0,
   materialsCount: 0,
   attendanceCount: 0,
+  openTodosCount: 0,
   todayClasses: [],
   recentNotes: [],
 };
 
 const EMPTY_TIMETABLE = { periods: [], slots: [] };
 const EMPTY_LIBRARY = { periods: [], activeSubjects: [], archivedSubjects: [] };
-const EMPTY_TAB_CACHE = { notes: {}, materials: {}, attendance: {} };
+const EMPTY_TAB_CACHE = { notes: {}, materials: {}, attendance: {}, todos: {} };
+const EMPTY_SUBJECT_TAB_REQUESTS = {};
+const SUBJECT_TAB_LOADERS = {
+  [DETAIL_TABS.notes]: loadSubjectNotes,
+  [DETAIL_TABS.materials]: loadSubjectMaterials,
+  [DETAIL_TABS.attendance]: loadSubjectAttendance,
+  [DETAIL_TABS.todos]: loadSubjectTodos,
+};
+
+function createSubjectLoadingDescriptor(subjectId = null, requestId = 0, pending = false) {
+  return { subjectId, requestId, pending };
+}
+
+function createSubjectTabLoadingState() {
+  return {
+    [DETAIL_TABS.notes]: createSubjectLoadingDescriptor(),
+    [DETAIL_TABS.materials]: createSubjectLoadingDescriptor(),
+    [DETAIL_TABS.attendance]: createSubjectLoadingDescriptor(),
+    [DETAIL_TABS.todos]: createSubjectLoadingDescriptor(),
+  };
+}
 
 function describeSlotConflicts(conflicts = []) {
   return conflicts
@@ -92,6 +115,10 @@ function buildBootstrapError(title, error) {
   };
 }
 
+function subjectTabRequestKey(subjectId, tab) {
+  return `${subjectId}:${tab}`;
+}
+
 function App() {
   const pwaState = usePwaStatus();
 
@@ -110,16 +137,12 @@ function App() {
 
   const [subjectHeaderCache, setSubjectHeaderCache] = useState({});
   const [subjectTabCache, setSubjectTabCache] = useState(EMPTY_TAB_CACHE);
-  const [subjectHeaderLoading, setSubjectHeaderLoading] = useState(false);
-  const [subjectTabLoading, setSubjectTabLoading] = useState({
-    [DETAIL_TABS.notes]: false,
-    [DETAIL_TABS.materials]: false,
-    [DETAIL_TABS.attendance]: false,
-  });
+  const [subjectHeaderLoading, setSubjectHeaderLoading] = useState(() => createSubjectLoadingDescriptor());
+  const [subjectTabLoading, setSubjectTabLoading] = useState(() => createSubjectTabLoadingState());
 
   const [subjectModalState, setSubjectModalState] = useState({ open: false, initialValue: null });
   const [noteModalState, setNoteModalState] = useState({ open: false, initialValue: null, subjectId: null });
-  const [settingsModalState, setSettingsModalState] = useState({ open: false, initialTermEditorState: null, sourceTermKey: "" });
+  const [settingsModalState, setSettingsModalState] = useState({ open: false, initialTermEditorState: null });
   const [materialModalState, setMaterialModalState] = useState({ open: false, material: null });
   const [exportWarning, setExportWarning] = useState(null);
   const [toasts, setToasts] = useState([]);
@@ -129,9 +152,14 @@ function App() {
 
   const previousTermKeyRef = useRef(null);
   const currentTermKeyRef = useRef("");
+  const selectedSubjectIdRef = useRef(null);
+  const detailTabRef = useRef(DETAIL_TABS.notes);
+  const subjectTabCacheRef = useRef(EMPTY_TAB_CACHE);
   const dashboardRequestRef = useRef(0);
   const timetableRequestRef = useRef(0);
   const libraryRequestRef = useRef(0);
+  const subjectHeaderRequestRef = useRef(0);
+  const subjectTabRequestRef = useRef(EMPTY_SUBJECT_TAB_REQUESTS);
 
   const busy = busyCount > 0;
   const currentTermKey = settings?.currentTermKey || "";
@@ -139,6 +167,18 @@ function App() {
   useEffect(() => {
     currentTermKeyRef.current = currentTermKey;
   }, [currentTermKey]);
+
+  useEffect(() => {
+    selectedSubjectIdRef.current = selectedSubjectId;
+  }, [selectedSubjectId]);
+
+  useEffect(() => {
+    detailTabRef.current = detailTab;
+  }, [detailTab]);
+
+  useEffect(() => {
+    subjectTabCacheRef.current = subjectTabCache;
+  }, [subjectTabCache]);
 
   const allSubjectsMap = useMemo(() => {
     const map = new Map();
@@ -182,6 +222,7 @@ function App() {
   const selectedNotes = selectedSubjectId ? subjectTabCache.notes[selectedSubjectId] || [] : [];
   const selectedMaterials = selectedSubjectId ? subjectTabCache.materials[selectedSubjectId] || [] : [];
   const selectedAttendance = selectedSubjectId ? subjectTabCache.attendance[selectedSubjectId] || [] : [];
+  const selectedTodos = selectedSubjectId ? subjectTabCache.todos[selectedSubjectId] || [] : [];
 
   const currentPeriods = useMemo(() => {
     if (timetableData.periods.length > 0) return timetableData.periods;
@@ -224,16 +265,34 @@ function App() {
   );
 
   const retryBootstrap = useCallback(() => {
+    currentTermKeyRef.current = "";
+    selectedSubjectIdRef.current = null;
+    detailTabRef.current = DETAIL_TABS.notes;
+    dashboardRequestRef.current += 1;
+    timetableRequestRef.current += 1;
+    libraryRequestRef.current += 1;
+    subjectHeaderRequestRef.current += 1;
+    subjectTabRequestRef.current = {};
     setReady(false);
+    setPage(PAGE_DEFS.dashboard);
     setBootstrapError(null);
     setShowBootstrapErrorDetails(false);
     setSettings(null);
     setDashboardSummary(EMPTY_STATS);
     setTimetableData(EMPTY_TIMETABLE);
     setLibraryData(EMPTY_LIBRARY);
+    setSubjectSearch("");
+    setSubjectModalState({ open: false, initialValue: null });
+    setNoteModalState({ open: false, initialValue: null, subjectId: null });
+    setSettingsModalState({ open: false, initialTermEditorState: null });
+    setMaterialModalState({ open: false, material: null });
+    setExportWarning(null);
     setSelectedSubjectId(null);
+    setDetailTab(DETAIL_TABS.notes);
     setSubjectHeaderCache({});
     setSubjectTabCache(EMPTY_TAB_CACHE);
+    setSubjectHeaderLoading(createSubjectLoadingDescriptor());
+    setSubjectTabLoading(createSubjectTabLoadingState());
     previousTermKeyRef.current = null;
     setBootstrapNonce((value) => value + 1);
   }, []);
@@ -298,34 +357,58 @@ function App() {
 
   const refreshSubjectHeader = useCallback(async (subjectId) => {
     if (!subjectId) return null;
-    setSubjectHeaderLoading(true);
+    const requestId = subjectHeaderRequestRef.current + 1;
+    subjectHeaderRequestRef.current = requestId;
+    setSubjectHeaderLoading(createSubjectLoadingDescriptor(subjectId, requestId, true));
     try {
       const header = await loadSubjectHeader(subjectId);
+      if (subjectHeaderRequestRef.current !== requestId) return header;
       if (!header) {
-        setSubjectHeaderCache((current) => {
-          const next = { ...current };
-          delete next[subjectId];
-          return next;
-        });
+        if (selectedSubjectIdRef.current === subjectId) {
+          setSubjectHeaderCache((current) => {
+            const next = { ...current };
+            delete next[subjectId];
+            return next;
+          });
+        }
         return null;
       }
-      setSubjectHeaderCache((current) => ({ ...current, [subjectId]: header }));
+      if (selectedSubjectIdRef.current === subjectId) {
+        setSubjectHeaderCache((current) => ({ ...current, [subjectId]: header }));
+      }
       return header;
     } finally {
-      setSubjectHeaderLoading(false);
+      if (subjectHeaderRequestRef.current === requestId) {
+        setSubjectHeaderLoading((current) => (
+          current.requestId === requestId
+            ? createSubjectLoadingDescriptor(current.subjectId, current.requestId, false)
+            : current
+        ));
+      }
     }
   }, []);
 
   const refreshSubjectTab = useCallback(async (subjectId, tab, { force = true } = {}) => {
     if (!subjectId) return;
-    if (!force && subjectTabCache[tab]?.[subjectId]) return;
+    const cachedData = subjectTabCacheRef.current[tab]?.[subjectId];
+    if (!force && cachedData) return cachedData;
 
-    setSubjectTabLoading((current) => ({ ...current, [tab]: true }));
+    const requestKey = subjectTabRequestKey(subjectId, tab);
+    const requestId = (subjectTabRequestRef.current[requestKey] || 0) + 1;
+    subjectTabRequestRef.current = {
+      ...subjectTabRequestRef.current,
+      [requestKey]: requestId,
+    };
+    if (selectedSubjectIdRef.current === subjectId && detailTabRef.current === tab) {
+      setSubjectTabLoading((current) => ({
+        ...current,
+        [tab]: createSubjectLoadingDescriptor(subjectId, requestId, true),
+      }));
+    }
     try {
-      let data = [];
-      if (tab === DETAIL_TABS.notes) data = await loadSubjectNotes(subjectId);
-      if (tab === DETAIL_TABS.materials) data = await loadSubjectMaterials(subjectId);
-      if (tab === DETAIL_TABS.attendance) data = await loadSubjectAttendance(subjectId);
+      const loader = SUBJECT_TAB_LOADERS[tab];
+      const data = loader ? await loader(subjectId) : [];
+      if (subjectTabRequestRef.current[requestKey] !== requestId) return data;
       setSubjectTabCache((current) => ({
         ...current,
         [tab]: {
@@ -333,10 +416,22 @@ function App() {
           [subjectId]: data,
         },
       }));
+      return data;
     } finally {
-      setSubjectTabLoading((current) => ({ ...current, [tab]: false }));
+      if (
+        subjectTabRequestRef.current[requestKey] === requestId
+        && selectedSubjectIdRef.current === subjectId
+        && detailTabRef.current === tab
+      ) {
+        setSubjectTabLoading((current) => ({
+          ...current,
+          [tab]: current[tab].requestId === requestId
+            ? createSubjectLoadingDescriptor(current[tab].subjectId, current[tab].requestId, false)
+            : current[tab],
+        }));
+      }
     }
-  }, [subjectTabCache]);
+  }, []);
 
   const refreshSelectedSubjectSlice = useCallback(
     async (subjectId, options = {}) => {
@@ -350,6 +445,9 @@ function App() {
       }
       if (options.attendance) {
         await refreshSubjectTab(subjectId, DETAIL_TABS.attendance);
+      }
+      if (options.todos) {
+        await refreshSubjectTab(subjectId, DETAIL_TABS.todos);
       }
     },
     [refreshSubjectHeader, refreshSubjectTab],
@@ -386,8 +484,11 @@ function App() {
     const previousTermKey = previousTermKeyRef.current;
     if (previousTermKey && previousTermKey !== settings.currentTermKey) {
       setSelectedSubjectId(null);
+      selectedSubjectIdRef.current = null;
       setSubjectHeaderCache({});
       setSubjectTabCache(EMPTY_TAB_CACHE);
+      setSubjectHeaderLoading(createSubjectLoadingDescriptor());
+      setSubjectTabLoading(createSubjectTabLoadingState());
     }
     previousTermKeyRef.current = settings.currentTermKey;
 
@@ -417,18 +518,25 @@ function App() {
 
   useEffect(() => {
     if (!selectedSubjectId) return;
-    refreshSubjectHeader(selectedSubjectId).then((header) => {
+    const targetSubjectId = selectedSubjectId;
+    refreshSubjectHeader(targetSubjectId).then((header) => {
+      if (selectedSubjectIdRef.current !== targetSubjectId) return;
       if (header?.subject?.termKey !== currentTermKey) {
         setSelectedSubjectId(null);
+        selectedSubjectIdRef.current = null;
       }
     }).catch((error) => {
+      if (selectedSubjectIdRef.current !== targetSubjectId) return;
       handleKnownError(error, "授業詳細の読み込みに失敗しました。");
     });
   }, [currentTermKey, handleKnownError, refreshSubjectHeader, selectedSubjectId]);
 
   useEffect(() => {
     if (!selectedSubjectId) return;
-    refreshSubjectTab(selectedSubjectId, detailTab, { force: false }).catch((error) => {
+    const targetSubjectId = selectedSubjectId;
+    const targetTab = detailTab;
+    refreshSubjectTab(targetSubjectId, targetTab, { force: false }).catch((error) => {
+      if (selectedSubjectIdRef.current !== targetSubjectId || detailTabRef.current !== targetTab) return;
       handleKnownError(error, "タブデータの読み込みに失敗しました。");
     });
   }, [detailTab, handleKnownError, refreshSubjectTab, selectedSubjectId]);
@@ -502,17 +610,34 @@ function App() {
     setNoteModalState({ open: false, initialValue: null, subjectId: null });
   }
 
+  const closeSettingsModal = useCallback(() => {
+    setSettingsModalState({ open: false, initialTermEditorState: null });
+  }, []);
+
   const openSettingsModal = useCallback(async () => {
     if (!currentTermKey) return;
     try {
       const initialTermEditorState = await loadTermEditorState(currentTermKey);
-      setSettingsModalState({ open: true, initialTermEditorState, sourceTermKey: currentTermKey });
+      setSettingsModalState({ open: true, initialTermEditorState });
     } catch (error) {
       handleKnownError(error, "設定の読み込みに失敗しました。");
     }
   }, [currentTermKey, handleKnownError]);
 
+  const handleImportApplied = useCallback((result) => {
+    pushToast({
+      tone: "success",
+      title: "バックアップを復元しました。",
+      description: result?.warnings?.length
+        ? `資料ファイル ${result.warnings.length} 件は欠損のまま復元されました。`
+        : undefined,
+    });
+    retryBootstrap();
+  }, [pushToast, retryBootstrap]);
+
   const handleSelectSubject = useCallback((subjectId) => {
+    selectedSubjectIdRef.current = subjectId;
+    detailTabRef.current = DETAIL_TABS.notes;
     setSelectedSubjectId(subjectId);
     setDetailTab(DETAIL_TABS.notes);
     setPage(PAGE_DEFS.timetable);
@@ -546,7 +671,6 @@ function App() {
         handleKnownError(error, "授業を保存できませんでした。");
         throw error;
       } else if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
-        closeSubjectModal();
         await Promise.all([
           refreshDashboard(currentTermKey),
           refreshTimetable(currentTermKey),
@@ -556,13 +680,14 @@ function App() {
           createAppError(error.code, "この授業は別の画面で更新または削除されています。授業一覧を開き直してから編集してください。"),
           "授業を保存できませんでした。",
         );
-        return;
+        throw error;
       } else {
         handleKnownError(error, "授業の保存に失敗しました。");
         throw error;
       }
     }
 
+    selectedSubjectIdRef.current = savedSubject.id;
     setSelectedSubjectId(savedSubject.id);
     await Promise.all([
       refreshDashboard(currentTermKey),
@@ -652,7 +777,6 @@ function App() {
       pushToast({ tone: "success", title: "ノートを保存しました。" });
     } catch (error) {
       if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
-        closeNoteModal();
         await Promise.all([
           refreshDashboard(currentTermKey),
           refreshSelectedSubjectSlice(nextDraft.subjectId, { notes: true }),
@@ -661,7 +785,7 @@ function App() {
           createAppError(error.code, "このノートは別の画面で更新または削除されています。開き直してから編集してください。"),
           "ノートを保存できませんでした。",
         );
-        return;
+        throw error;
       }
       handleKnownError(error, "ノートの保存に失敗しました。");
       throw error;
@@ -766,7 +890,6 @@ function App() {
       pushToast({ tone: "success", title: "資料メモを保存しました。" });
     } catch (error) {
       if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
-        setMaterialModalState({ open: false, material: null });
         if (selectedSubjectId) {
           await refreshSelectedSubjectSlice(selectedSubjectId, { materials: true });
         }
@@ -774,7 +897,7 @@ function App() {
           createAppError(error.code, "この資料メモは別の画面で更新または削除されています。開き直してから編集してください。"),
           "資料メモを保存できませんでした。",
         );
-        return;
+        throw error;
       }
       handleKnownError(error, "資料メモの保存に失敗しました。");
       throw error;
@@ -837,7 +960,55 @@ function App() {
     }
   }
 
-  async function handleSaveSettings({ sourceTermKey, draft, periodsLoadedForTermKey }) {
+  async function handleSaveTodo(draft) {
+    try {
+      await withBusy(() => saveTodo(draft));
+      await Promise.all([
+        refreshDashboard(currentTermKey),
+        refreshSelectedSubjectSlice(draft.subjectId, { todos: true }),
+      ]);
+      pushToast({ tone: "success", title: "ToDo を保存しました。" });
+    } catch (error) {
+      if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
+        await Promise.all([
+          refreshDashboard(currentTermKey),
+          refreshSelectedSubjectSlice(draft.subjectId, { todos: true }),
+        ]);
+        handleKnownError(
+          createAppError(error.code, "この ToDo は別の画面で更新または削除されています。開き直してから編集してください。"),
+          "ToDo を保存できませんでした。",
+        );
+        throw error;
+      }
+      handleKnownError(error, "ToDo の保存に失敗しました。");
+      throw error;
+    }
+  }
+
+  async function handleDeleteTodo(todo) {
+    const todoTitle = todo.title?.trim() || "無題ToDo";
+    if (!window.confirm(`「${todoTitle}」を削除しますか？`)) return;
+    try {
+      await withBusy(() => deleteTodo(todo.id));
+      await Promise.all([
+        refreshDashboard(currentTermKey),
+        refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
+      ]);
+      pushToast({ tone: "success", title: "ToDo を削除しました。" });
+    } catch (error) {
+      if (error?.code === "STALE_DRAFT") {
+        await Promise.all([
+          refreshDashboard(currentTermKey),
+          refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
+        ]);
+        handleKnownError(error, "ToDo は既に削除されています。");
+        return;
+      }
+      handleKnownError(error, "ToDo の削除に失敗しました。");
+    }
+  }
+
+  async function handleSaveSettings({ draft, periodsLoadedForTermKey }) {
     if (!draft.currentTermKey.trim()) {
       throw createAppError("INVALID_SETTINGS", "内部学期キーは必須です。");
     }
@@ -845,7 +1016,6 @@ function App() {
     try {
       await withBusy(() =>
         saveSettingsBundle({
-          sourceTermKey,
           draftSettings: draft,
           draftPeriods: draft.periods,
           periodsLoadedForTermKey,
@@ -872,7 +1042,7 @@ function App() {
           refreshLibrary(nextSettings.currentTermKey),
         ]);
         handleKnownError(error, "設定は別の画面で更新されています。");
-        return;
+        throw error;
       }
       handleKnownError(error, "設定の保存に失敗しました。");
       throw error;
@@ -933,6 +1103,13 @@ function App() {
     });
   };
 
+  const activeHeaderLoading = Boolean(selectedSubjectId)
+    && subjectHeaderLoading.pending
+    && subjectHeaderLoading.subjectId === selectedSubjectId;
+  const activeTabLoading = Boolean(selectedSubjectId)
+    && subjectTabLoading[detailTab]?.pending
+    && subjectTabLoading[detailTab]?.subjectId === selectedSubjectId;
+
   return (
     <>
       <AppShell
@@ -970,10 +1147,11 @@ function App() {
               <SubjectDetailPanel
                 header={selectedHeader}
                 detailTab={detailTab}
-                tabLoading={subjectHeaderLoading || subjectTabLoading[detailTab]}
+                tabLoading={activeHeaderLoading || activeTabLoading}
                 notes={selectedNotes}
                 materials={selectedMaterials}
                 attendance={selectedAttendance}
+                todos={selectedTodos}
                 onChangeTab={setDetailTab}
                 onEditSubject={openEditSubject}
                 onArchiveSubject={handleArchiveSubject}
@@ -989,6 +1167,8 @@ function App() {
                 onSaveAttendance={handleSaveAttendance}
                 onDeleteAttendance={handleDeleteAttendance}
                 loadAttendanceSlotOptions={getAttendanceSlotOptions}
+                onSaveTodo={handleSaveTodo}
+                onDeleteTodo={handleDeleteTodo}
               />
             }
           />
@@ -1037,12 +1217,12 @@ function App() {
 
       <SettingsModal
         open={settingsModalState.open}
-        sourceTermKey={settingsModalState.sourceTermKey}
         initialSettings={settings}
         initialTermEditorState={settingsModalState.initialTermEditorState}
         loadTermEditorState={loadTermEditorState}
-        onClose={() => setSettingsModalState((current) => ({ ...current, open: false }))}
+        onClose={closeSettingsModal}
         onSave={handleSaveSettings}
+        onImportApplied={handleImportApplied}
       />
 
       <Modal

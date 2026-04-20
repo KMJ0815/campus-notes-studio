@@ -102,6 +102,7 @@ describe("schema migration", () => {
     const note = await db.get("notes", "note-1");
     const attendance = await db.get("attendance", "attendance-1");
     const material = await db.get("material_meta", "material-1");
+    const todoItems = await db.getAll("todo_items");
 
     expect(settings.periods).toBeUndefined();
     expect(periods).toHaveLength(1);
@@ -119,5 +120,6 @@ describe("schema migration", () => {
     expect(await db.getAllFromIndex("notes", "byTermKey", "2026-spring")).toHaveLength(1);
     expect(await db.getAllFromIndex("attendance", "byTermKey", "2026-spring")).toHaveLength(1);
     expect(await db.getAllFromIndex("material_meta", "byTermKey", "2026-spring")).toHaveLength(1);
+    expect(todoItems).toEqual([]);
   });
 });

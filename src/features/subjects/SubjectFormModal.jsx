@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
-import { DAY_DEFS } from "../../lib/constants";
 import {
   deepEqualJson,
   emptySubjectDraft,
@@ -9,6 +8,11 @@ import {
   slotKey,
 } from "../../lib/utils";
 import { Field, IconButton, Modal, TextArea, TextInput } from "../../components/ui";
+import { TimetableGrid } from "../timetable/TimetableGrid";
+import {
+  TIMETABLE_CELL_MIN_HEIGHT_CLASS,
+  TIMETABLE_SELECTABLE_CELL_CLASS,
+} from "../timetable/timetableLayout";
 
 export function SubjectFormModal({ open, termKey, initialValue, periods, occupiedSlotMap, onClose, onSave }) {
   const [draft, setDraft] = useState(() => emptySubjectDraft(termKey));
@@ -81,11 +85,12 @@ export function SubjectFormModal({ open, termKey, initialValue, periods, occupie
     <Modal
       open={open}
       onClose={requestClose}
+      lockClose={saving}
       title={draft?.id ? "授業を編集" : "授業を追加"}
       maxWidth="max-w-5xl"
     >
       {draft ? (
-        <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
           <div className="space-y-4">
             <Field label="授業名">
               <TextInput
@@ -129,68 +134,54 @@ export function SubjectFormModal({ open, termKey, initialValue, periods, occupie
             </Field>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h4 className="text-sm font-semibold text-slate-900">時間割コマの割り当て</h4>
-              </div>
-            </div>
-            <div className="mt-4 overflow-x-auto">
-              <div className="min-w-[760px] rounded-3xl border border-slate-200 bg-slate-50/50 p-3">
-                <div className="grid grid-cols-[180px_repeat(6,minmax(0,1fr))] gap-3">
-                  <div className="rounded-2xl bg-white p-3 text-sm font-medium text-slate-500 ring-1 ring-slate-200">コマ / 時間</div>
-                  {DAY_DEFS.map((day) => (
-                    <div key={day.key} className="rounded-2xl bg-white p-3 text-center text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
-                      {day.label}
-                    </div>
-                  ))}
-                  {periods.filter((period) => period.isEnabled).map((period) => (
-                    <div key={period.id} className="contents">
-                      <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-                        <p className="text-sm font-semibold text-slate-900">{period.label}</p>
-                        <p className="mt-1 text-xs text-slate-500">{period.startTime} - {period.endTime}</p>
-                      </div>
-                      {DAY_DEFS.map((day) => {
-                        const key = slotKey(day.key, period.periodNo);
-                        const checked = draft.selectedSlotKeys.includes(key);
-                        const owner = occupiedSlotMap.get(key);
-                        const occupiedByOther = owner && owner.id !== draft.id;
-                        return (
-                          <button
-                            type="button"
-                            key={key}
-                            onClick={() => {
-                              setDraft((current) => {
-                                const next = new Set(current.selectedSlotKeys);
-                                if (next.has(key)) next.delete(key);
-                                else next.add(key);
-                                return { ...current, selectedSlotKeys: [...next] };
-                              });
-                            }}
-                            className={`min-h-[92px] rounded-2xl border p-3 text-left transition ${
-                              checked
-                                ? "border-slate-900 bg-slate-900 text-white"
-                                : occupiedByOther
-                                  ? "border-amber-200 bg-amber-50 text-amber-900"
-                                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                            }`}
-                          >
-                            <p className="text-sm font-medium">{checked ? "選択中" : occupiedByOther ? "使用中" : "空き"}</p>
-                            <p className="mt-1 text-xs opacity-80">{occupiedByOther ? owner.name : `${day.label} ${period.label}`}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))}
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-900">時間割コマの割り当て</h4>
                 </div>
+              </div>
+              <div className="mt-4">
+                <TimetableGrid
+                  periods={periods}
+                  renderCell={({ day, period }) => {
+                    const key = slotKey(day.key, period.periodNo);
+                    const checked = draft.selectedSlotKeys.includes(key);
+                    const owner = occupiedSlotMap.get(key);
+                    const occupiedByOther = owner && owner.id !== draft.id;
+
+                    return (
+                      <button
+                        type="button"
+                        key={key}
+                        onClick={() => {
+                          setDraft((current) => {
+                            const next = new Set(current.selectedSlotKeys);
+                            if (next.has(key)) next.delete(key);
+                            else next.add(key);
+                            return { ...current, selectedSlotKeys: [...next] };
+                          });
+                        }}
+                        className={`${TIMETABLE_SELECTABLE_CELL_CLASS} ${TIMETABLE_CELL_MIN_HEIGHT_CLASS} ${
+                          checked
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : occupiedByOther
+                              ? "border-amber-200 bg-amber-50 text-amber-900"
+                              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        <p className="text-sm font-medium">{checked ? "選択中" : occupiedByOther ? "使用中" : "空き"}</p>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 opacity-80">{occupiedByOther ? owner.name : `${day.label} ${period.label}`}</p>
+                      </button>
+                    );
+                  }}
+                />
               </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
       <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-6">
-        <IconButton tone="light" onClick={requestClose}>
+        <IconButton tone="light" onClick={requestClose} disabled={saving}>
           キャンセル
         </IconButton>
         <IconButton icon={CheckCircle2} onClick={handleSave} disabled={saving}>
