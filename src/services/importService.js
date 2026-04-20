@@ -24,6 +24,32 @@ const TODO_STATUS_VALUES = new Set(TODO_STATUS_OPTIONS.map((option) => option.va
 const ATTENDANCE_STATUS_VALUES = new Set(ATTENDANCE_STATUS_OPTIONS.map((option) => option.value));
 const VALID_WEEKDAY_KEYS = new Set(DAY_DEFS.map((day) => day.key));
 
+function assertStringField(value, label, { allowEmpty = true } = {}) {
+  if (typeof value !== "string") {
+    throw createAppError("IMPORT_INVALID", `${label} は文字列である必要があります。`);
+  }
+  if (!allowEmpty && !value.trim()) {
+    throw createAppError("IMPORT_INVALID", `${label} が空です。`);
+  }
+}
+
+function assertOptionalStringField(value, label, options) {
+  if (value === undefined || value === null) return;
+  assertStringField(value, label, options);
+}
+
+function assertBooleanField(value, label) {
+  if (typeof value !== "boolean") {
+    throw createAppError("IMPORT_INVALID", `${label} は boolean である必要があります。`);
+  }
+}
+
+function assertArrayField(value, label) {
+  if (!Array.isArray(value)) {
+    throw createAppError("IMPORT_INVALID", `${label} は配列である必要があります。`);
+  }
+}
+
 function ensureUniqueIds(items, label) {
   const seen = new Set();
   for (const item of items) {
@@ -104,6 +130,84 @@ function wrapInvalidPeriodError(error, termKey) {
   );
 }
 
+function validateManifestShape(manifest) {
+  assertStringField(manifest.settings.currentTermKey, "settings.currentTermKey", { allowEmpty: false });
+  assertStringField(manifest.settings.termLabel, "settings.termLabel", { allowEmpty: false });
+  assertBooleanField(manifest.settings.exportIncludeFiles, "settings.exportIncludeFiles");
+
+  manifest.termMeta.forEach((item, index) => {
+    assertStringField(item.termKey, `termMeta[${index}].termKey`, { allowEmpty: false });
+    assertStringField(item.label, `termMeta[${index}].label`);
+  });
+
+  manifest.periods.forEach((period, index) => {
+    assertStringField(period.termKey, `periods[${index}].termKey`, { allowEmpty: false });
+    assertStringField(period.label, `periods[${index}].label`, { allowEmpty: false });
+    assertStringField(period.startTime, `periods[${index}].startTime`, { allowEmpty: false });
+    assertStringField(period.endTime, `periods[${index}].endTime`, { allowEmpty: false });
+    assertBooleanField(period.isEnabled, `periods[${index}].isEnabled`);
+  });
+
+  manifest.subjects.forEach((subject, index) => {
+    assertStringField(subject.termKey, `subjects[${index}].termKey`, { allowEmpty: false });
+    assertStringField(subject.name, `subjects[${index}].name`, { allowEmpty: false });
+    assertOptionalStringField(subject.teacherName, `subjects[${index}].teacherName`);
+    assertOptionalStringField(subject.room, `subjects[${index}].room`);
+    assertOptionalStringField(subject.color, `subjects[${index}].color`);
+    assertOptionalStringField(subject.memo, `subjects[${index}].memo`);
+    assertBooleanField(subject.isArchived, `subjects[${index}].isArchived`);
+    assertArrayField(subject.restoreSlotIds, `subjects[${index}].restoreSlotIds`);
+  });
+
+  manifest.slots.forEach((slot, index) => {
+    assertStringField(slot.termKey, `slots[${index}].termKey`, { allowEmpty: false });
+    assertStringField(slot.subjectId, `slots[${index}].subjectId`, { allowEmpty: false });
+    assertStringField(slot.weekday, `slots[${index}].weekday`, { allowEmpty: false });
+    assertOptionalStringField(slot.activeSlotKey, `slots[${index}].activeSlotKey`);
+    assertBooleanField(slot.isArchived, `slots[${index}].isArchived`);
+  });
+
+  manifest.notes.forEach((note, index) => {
+    assertStringField(note.subjectId, `notes[${index}].subjectId`, { allowEmpty: false });
+    assertOptionalStringField(note.title, `notes[${index}].title`);
+    assertOptionalStringField(note.bodyText, `notes[${index}].bodyText`);
+    assertStringField(note.lectureDate, `notes[${index}].lectureDate`, { allowEmpty: false });
+  });
+
+  manifest.attendance.forEach((record, index) => {
+    assertStringField(record.subjectId, `attendance[${index}].subjectId`, { allowEmpty: false });
+    assertStringField(record.lectureDate, `attendance[${index}].lectureDate`, { allowEmpty: false });
+    assertOptionalStringField(record.timetableSlotId, `attendance[${index}].timetableSlotId`);
+    assertStringField(record.status, `attendance[${index}].status`, { allowEmpty: false });
+    assertOptionalStringField(record.memo, `attendance[${index}].memo`);
+  });
+
+  manifest.todos.forEach((todo, index) => {
+    assertStringField(todo.subjectId, `todos[${index}].subjectId`, { allowEmpty: false });
+    assertStringField(todo.title, `todos[${index}].title`);
+    assertOptionalStringField(todo.memo, `todos[${index}].memo`);
+    assertOptionalStringField(todo.dueDate, `todos[${index}].dueDate`);
+    assertStringField(todo.status, `todos[${index}].status`, { allowEmpty: false });
+    assertOptionalStringField(todo.completedAt, `todos[${index}].completedAt`);
+  });
+
+  manifest.materials.forEach((material, index) => {
+    assertStringField(material.subjectId, `materials[${index}].subjectId`, { allowEmpty: false });
+    assertStringField(material.displayName, `materials[${index}].displayName`, { allowEmpty: false });
+    assertOptionalStringField(material.mimeType, `materials[${index}].mimeType`);
+    assertOptionalStringField(material.fileExt, `materials[${index}].fileExt`);
+    assertOptionalStringField(material.note, `materials[${index}].note`);
+    assertOptionalStringField(material.storageBackend, `materials[${index}].storageBackend`);
+  });
+
+  manifest.materialFiles.forEach((fileEntry, index) => {
+    assertStringField(fileEntry.id, `materialFiles[${index}].id`, { allowEmpty: false });
+    assertStringField(fileEntry.path, `materialFiles[${index}].path`, { allowEmpty: false });
+    assertOptionalStringField(fileEntry.displayName, `materialFiles[${index}].displayName`);
+    assertOptionalStringField(fileEntry.mimeType, `materialFiles[${index}].mimeType`);
+  });
+}
+
 function validateManifest(data, zip) {
   const warnings = [];
   const currentTermKey = data.settings.currentTermKey;
@@ -117,6 +221,7 @@ function validateManifest(data, zip) {
   ensureUniqueIds(data.todos, "ToDo");
   ensureUniqueIds(data.materialMeta, "資料");
   ensureUniqueIds(data.materialFiles, "資料ファイル");
+  ensureUniqueKey(data.materialFiles, "path", "資料ファイル");
 
   const termMetaKeys = new Set(data.termMeta.map((item) => item?.termKey).filter(Boolean));
   if (!termMetaKeys.has(currentTermKey)) {
@@ -326,6 +431,7 @@ function buildPreview(data, validation) {
 }
 
 function normalizeImportData(manifest) {
+  validateManifestShape(manifest);
   const timestamp = nowIso();
   const subjectMap = new Map(manifest.subjects.map((subject) => [subject.id, subject]));
   const periodsByTerm = new Map();
@@ -339,7 +445,7 @@ function normalizeImportData(manifest) {
   const subjects = manifest.subjects.map((subject) => ({
     ...subject,
     color: normalizeSubjectColorInput(subject.color),
-    restoreSlotIds: Array.isArray(subject.restoreSlotIds) ? subject.restoreSlotIds : [],
+    restoreSlotIds: subject.restoreSlotIds,
     updatedAt: subject.updatedAt || subject.createdAt || timestamp,
   }));
 

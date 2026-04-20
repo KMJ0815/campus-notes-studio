@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./app/usePwaStatus", () => ({
   usePwaStatus: () => ({
     updateAvailable: false,
+    applyPwaUpdate: vi.fn(),
   }),
 }));
 
@@ -59,8 +60,22 @@ vi.mock("./features/subjects/SubjectDetailPanel", async () => {
   const React = await import("react");
 
   return {
-    SubjectDetailPanel: ({ attendance, detailTab, header, materials, notes, onChangeTab, onSaveTodo, tabLoading, todos }) => {
+    SubjectDetailPanel: ({
+      attendance,
+      detailTab,
+      header,
+      materials,
+      notes,
+      onChangeTab,
+      onDeleteTodo,
+      onSaveAttendance,
+      onSaveTodo,
+      tabLoading,
+      todos,
+    }) => {
       const [result, setResult] = React.useState("idle");
+      const [attendanceResult, setAttendanceResult] = React.useState("idle");
+      const [todoDeleteResult, setTodoDeleteResult] = React.useState("idle");
       const itemsByTab = {
         notes,
         materials,
@@ -92,6 +107,42 @@ vi.mock("./features/subjects/SubjectDetailPanel", async () => {
             save-todo
           </button>
           <div>{`todo-save-${result}`}</div>
+          <button
+            type="button"
+            onClick={() => {
+              setAttendanceResult("saving");
+              onSaveAttendance({
+                id: "attendance-1",
+                subjectId: header?.subject?.id || "subject-1",
+                lectureDate: "2026-04-21",
+                timetableSlotId: "",
+                status: "present",
+                memo: "",
+                baseUpdatedAt: "2026-04-19T10:00:00.000Z",
+              })
+                .then(() => setAttendanceResult("resolved"))
+                .catch(() => setAttendanceResult("rejected"));
+            }}
+          >
+            save-attendance
+          </button>
+          <div>{`attendance-save-${attendanceResult}`}</div>
+          <button
+            type="button"
+            onClick={() => {
+              setTodoDeleteResult("deleting");
+              onDeleteTodo({
+                id: "todo-1",
+                subjectId: header?.subject?.id || "subject-1",
+                title: "再提出",
+              })
+                .then((value) => setTodoDeleteResult(`resolved-${value?.status || "deleted"}`))
+                .catch(() => setTodoDeleteResult("rejected"));
+            }}
+          >
+            delete-todo
+          </button>
+          <div>{`todo-delete-${todoDeleteResult}`}</div>
           <div>{`detail-loading-${tabLoading ? "yes" : "no"}`}</div>
           <div>{`detail-tab-${detailTab}`}</div>
           <div>{`detail-items-${currentItems.map((item) => item.id).join(",") || "none"}`}</div>
@@ -207,9 +258,10 @@ vi.mock("./services/materialFileStore", () => ({
 
 import App from "./App";
 import { ensureSeedData, deleteAppDb, resetDbConnection } from "./db/schema";
+import { saveAttendance } from "./db/repositories/attendance";
 import { getSettings, loadTermEditorState } from "./db/repositories/settings";
 import { restoreSubject } from "./db/repositories/subjects";
-import { saveTodo } from "./db/repositories/todos";
+import { deleteTodo, saveTodo } from "./db/repositories/todos";
 import {
   loadDashboardSummary,
   loadLibrarySubjects,
@@ -238,6 +290,8 @@ beforeEach(() => {
   loadLibrarySubjects.mockReset();
   loadTimetable.mockReset();
   restoreSubject.mockReset();
+  saveAttendance.mockReset();
+  deleteTodo.mockReset();
   loadSubjectAttendance.mockReset();
   loadSubjectHeader.mockReset();
   loadSubjectMaterials.mockReset();
@@ -278,6 +332,8 @@ beforeEach(() => {
   loadSubjectNotes.mockResolvedValue([]);
   loadSubjectTodos.mockResolvedValue([]);
   clearMaterialFileStorage.mockResolvedValue(undefined);
+  saveAttendance.mockResolvedValue(undefined);
+  deleteTodo.mockResolvedValue(undefined);
   saveTodo.mockResolvedValue(undefined);
 });
 
@@ -306,6 +362,152 @@ function buildSubject(id, name, color = "#4f46e5") {
     isArchived: false,
   };
 }
+
+describe("App subject action contracts", () => {
+  it("rejects stale attendance saves so the detail panel can keep its draft", async () => {
+    saveAttendance.mockRejectedValueOnce(Object.assign(new Error("stale"), { code: "STALE_UPDATE" }));
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject: buildSubject("subject-1", "統計学"),
+        },
+      ],
+    });
+    loadSubjectHeader.mockResolvedValue({
+      subject: buildSubject("subject-1", "統計学"),
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByText("go-timetable"));
+    fireEvent.click(screen.getByText("select-subject-1"));
+    fireEvent.click(screen.getByText("tab-attendance"));
+    fireEvent.click(screen.getByText("save-attendance"));
+
+    await waitFor(() => {
+      expect(screen.getByText("attendance-save-rejected")).not.toBeNull();
+    });
+  });
+
+  it("returns a cancelled status for todo deletes that the user aborts", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject: buildSubject("subject-1", "統計学"),
+        },
+      ],
+    });
+    loadSubjectHeader.mockResolvedValue({
+      subject: buildSubject("subject-1", "統計学"),
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 1,
+      doneTodosCount: 0,
+    });
+    loadSubjectTodos.mockResolvedValue([
+      {
+        id: "todo-1",
+        subjectId: "subject-1",
+        title: "再提出",
+        memo: "",
+        dueDate: "2026-04-21",
+        status: "open",
+        completedAt: null,
+        updatedAt: "2026-04-19T10:00:00.000Z",
+      },
+    ]);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByText("go-timetable"));
+    fireEvent.click(screen.getByText("select-subject-1"));
+    fireEvent.click(screen.getByText("tab-todos"));
+    fireEvent.click(screen.getByText("delete-todo"));
+
+    await waitFor(() => {
+      expect(screen.getByText("todo-delete-resolved-cancelled")).not.toBeNull();
+    });
+
+    expect(deleteTodo).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("returns a stale status for todo deletes that were already applied elsewhere", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    deleteTodo.mockRejectedValueOnce(Object.assign(new Error("stale"), { code: "STALE_DRAFT" }));
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject: buildSubject("subject-1", "統計学"),
+        },
+      ],
+    });
+    loadSubjectHeader.mockResolvedValue({
+      subject: buildSubject("subject-1", "統計学"),
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 1,
+      doneTodosCount: 0,
+    });
+    loadSubjectTodos.mockResolvedValue([
+      {
+        id: "todo-1",
+        subjectId: "subject-1",
+        title: "再提出",
+        memo: "",
+        dueDate: "2026-04-21",
+        status: "open",
+        completedAt: null,
+        updatedAt: "2026-04-19T10:00:00.000Z",
+      },
+    ]);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByText("go-timetable"));
+    fireEvent.click(screen.getByText("select-subject-1"));
+    fireEvent.click(screen.getByText("tab-todos"));
+    fireEvent.click(screen.getByText("delete-todo"));
+
+    await waitFor(() => {
+      expect(screen.getByText("todo-delete-resolved-stale")).not.toBeNull();
+    });
+
+    confirmSpy.mockRestore();
+  });
+});
 
 describe("App bootstrap errors", () => {
   it("shows an initialization error screen when seed loading fails", async () => {

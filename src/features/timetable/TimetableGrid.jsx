@@ -22,7 +22,7 @@ export function TimetableGrid({
   const enabledPeriods = periods.filter((period) => period.isEnabled);
 
   return (
-    <div className={`overflow-x-auto ${className}`}>
+    <div className={`min-w-0 overflow-x-auto ${className}`}>
       <div className={`${TIMETABLE_GRID_MIN_WIDTH_CLASS} ${TIMETABLE_FRAME_CLASS}`}>
         <div className={`grid ${TIMETABLE_GRID_TEMPLATE_CLASS} ${TIMETABLE_GRID_GAP_CLASS}`}>
           <div className={TIMETABLE_CORNER_CELL_CLASS}>{leftHeaderLabel}</div>

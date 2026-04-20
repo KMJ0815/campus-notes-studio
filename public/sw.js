@@ -104,12 +104,17 @@ async function networkFirst(request, offlineFallbackUrl = null) {
 async function staleWhileRevalidate(request) {
   const runtimeCache = await caches.open(RUNTIME_CACHE);
   const cached = await caches.match(request);
-  const networkPromise = fetch(request)
-    .then((response) => {
-      runtimeCache.put(request, response.clone());
-      return response;
-    })
-    .catch(() => null);
+  if (cached) {
+    void fetch(request)
+      .then((response) => {
+        runtimeCache.put(request, response.clone());
+        return response;
+      })
+      .catch(() => undefined);
+    return cached;
+  }
 
-  return cached || networkPromise;
+  const response = await fetch(request);
+  runtimeCache.put(request, response.clone());
+  return response;
 }

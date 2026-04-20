@@ -46,4 +46,34 @@ describe("TimetablePage", () => {
     expect(screen.getByText("301")).not.toBeNull();
     expect(screen.queryByText("山田 太郎")).toBeNull();
   });
+
+  it("keeps horizontal overflow inside the timetable card on narrow layouts", () => {
+    const { container } = render(
+      <TimetablePage
+        periods={[
+          {
+            id: "period-1",
+            periodNo: 1,
+            label: "1限",
+            startTime: "09:00",
+            endTime: "10:40",
+            isEnabled: true,
+          },
+        ]}
+        slotItems={[]}
+        onSelectSubject={vi.fn()}
+        onCreateSubject={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onExport={vi.fn()}
+        detailPanel={<div>detail-panel</div>}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const scrollFrame = container.querySelector(".overflow-x-auto");
+
+    expect(root?.className).toContain("min-w-0");
+    expect(scrollFrame?.className).toContain("min-w-0");
+    expect(scrollFrame?.firstElementChild?.className).toContain("min-w-[540px]");
+  });
 });

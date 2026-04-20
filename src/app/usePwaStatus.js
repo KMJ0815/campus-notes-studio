@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isStandaloneMode } from "../lib/utils";
+import { shouldReloadOnControllerChange } from "./pwaShared";
 
 export function usePwaStatus() {
   const baseUrl = import.meta.env.BASE_URL || "/";
@@ -9,6 +10,7 @@ export function usePwaStatus() {
   const [pwaRegistrationState, setPwaRegistrationState] = useState("idle");
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const waitingWorkerRef = useRef(null);
+  const updateRequestedRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -69,6 +71,10 @@ export function usePwaStatus() {
         .catch(() => setPwaRegistrationState("missing"));
 
       controllerChangeHandler = () => {
+        if (!shouldReloadOnControllerChange(updateRequestedRef.current)) return;
+        updateRequestedRef.current = false;
+        waitingWorkerRef.current = null;
+        setUpdateAvailable(false);
         window.location.reload();
       };
       navigator.serviceWorker.addEventListener("controllerchange", controllerChangeHandler);
@@ -108,10 +114,8 @@ export function usePwaStatus() {
 
   const applyPwaUpdate = useCallback(() => {
     const worker = waitingWorkerRef.current;
-    if (!worker) {
-      window.location.reload();
-      return;
-    }
+    if (!worker) return;
+    updateRequestedRef.current = true;
     worker.postMessage({ type: "SKIP_WAITING" });
   }, []);
 

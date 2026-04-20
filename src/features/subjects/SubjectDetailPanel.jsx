@@ -253,8 +253,12 @@ export function SubjectDetailPanel({
   }
 
   async function handleSaveAttendance() {
-    await onSaveAttendance(attendanceDraft);
-    resetAttendanceDraft();
+    try {
+      await onSaveAttendance(attendanceDraft);
+      resetAttendanceDraft();
+    } catch {
+      return;
+    }
   }
 
   function openTodoEditor(todo) {
@@ -340,8 +344,9 @@ export function SubjectDetailPanel({
   async function handleDeleteTodo(todo) {
     if (!beginTodoPending(todo.id)) return;
     try {
-      await onDeleteTodo(todo);
-      if (todoEditorInitialValue?.id === todo.id) {
+      const result = await onDeleteTodo(todo);
+      const status = result?.status || "deleted";
+      if ((status === "deleted" || status === "stale") && todoEditorInitialValue?.id === todo.id) {
         closeTodoEditor();
       }
     } catch {
@@ -353,7 +358,7 @@ export function SubjectDetailPanel({
 
   if (!header) {
     return (
-      <Panel className="min-h-[640px]">
+      <Panel className="min-w-0 sm:min-h-[640px]">
         <EmptyState
           icon={BookOpen}
           title="授業を選ぶと詳細がここに出ます"
@@ -363,8 +368,8 @@ export function SubjectDetailPanel({
   }
 
   return (
-    <Panel className="min-h-[640px]">
-      <div className="space-y-5">
+    <Panel className="min-w-0 sm:min-h-[640px]">
+      <div className="min-w-0 space-y-5">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">

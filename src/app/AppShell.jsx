@@ -90,7 +90,11 @@ export function AppShell({
 
           <Panel className="bg-slate-50/70">
             <div className="flex flex-wrap items-center gap-2">
-              {pwaState.isInstalledApp ? (
+              {pwaState.updateAvailable ? (
+                <IconButton icon={Download} tone="light" className="w-full justify-center" onClick={pwaState.applyPwaUpdate}>
+                  更新を適用
+                </IconButton>
+              ) : pwaState.isInstalledApp ? (
                 <Chip tone="indigo">インストール済み</Chip>
               ) : pwaState.installPromptEvent ? (
                 <IconButton icon={Download} tone="light" className="w-full justify-center" onClick={pwaState.handleInstallApp}>
@@ -107,7 +111,7 @@ export function AppShell({
           </Panel>
         </aside>
 
-        <main className="space-y-6">
+        <main className="min-w-0 space-y-6">
           <div className="flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm text-slate-500">{pageLead(page)}</p>

@@ -405,6 +405,35 @@ describe("SettingsModal", () => {
     });
   });
 
+  it("falls back to input.click when showPicker throws", () => {
+    const originalShowPicker = HTMLInputElement.prototype.showPicker;
+    const showPicker = vi.fn(() => {
+      throw new DOMException("blocked", "NotAllowedError");
+    });
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    Object.defineProperty(HTMLInputElement.prototype, "showPicker", {
+      configurable: true,
+      value: showPicker,
+    });
+
+    renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "復元 ZIP を選択" }));
+
+    expect(showPicker).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+
+    if (originalShowPicker === undefined) {
+      delete HTMLInputElement.prototype.showPicker;
+    } else {
+      Object.defineProperty(HTMLInputElement.prototype, "showPicker", {
+        configurable: true,
+        value: originalShowPicker,
+      });
+    }
+    clickSpy.mockRestore();
+  });
+
   it("keeps export and import errors in separate state buckets", async () => {
     prepareExportMock.mockRejectedValue(new Error("export failed"));
     readImportArchiveMock.mockRejectedValue(new Error("import failed"));

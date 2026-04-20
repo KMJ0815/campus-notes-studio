@@ -23,6 +23,8 @@ const baseProps = {
     isOnline: true,
     isInstalledApp: false,
     installPromptEvent: null,
+    updateAvailable: false,
+    applyPwaUpdate: vi.fn(),
     handleInstallApp: vi.fn(),
     pwaRegistrationState: "ready",
   },
@@ -67,5 +69,20 @@ describe("AppShell", () => {
     expect(screen.getByText("今学期の動きと最近の更新を確認")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "ダッシュボード" })).not.toBeNull();
     expect(screen.queryByText("今学期の状況")).toBeNull();
+  });
+
+  it("keeps the main content shrinkable and exposes the update action only when a PWA update exists", () => {
+    const { container, rerender } = renderAppShell();
+
+    expect(container.querySelector("main")?.className).toContain("min-w-0");
+    expect(screen.queryByRole("button", { name: "更新を適用" })).toBeNull();
+
+    rerender(
+      <AppShell {...baseProps} pwaState={{ ...baseProps.pwaState, updateAvailable: true }}>
+        <div>page-body</div>
+      </AppShell>,
+    );
+
+    expect(screen.getByRole("button", { name: "更新を適用" })).not.toBeNull();
   });
 });

@@ -473,4 +473,101 @@ describe("importService", () => {
       message: expect.stringContaining("無効なコマ定義を参照"),
     });
   });
+
+  it("rejects duplicate material file paths during preview", async () => {
+    const base = buildBaseManifest();
+    const manifest = buildBaseManifest({
+      materials: [
+        base.materials[0],
+        {
+          ...base.materials[0],
+          id: "material-2",
+          displayName: "lecture-copy.pdf",
+        },
+      ],
+      materialFiles: [
+        base.materialFiles[0],
+        {
+          id: "material-2",
+          path: base.materialFiles[0].path,
+          displayName: "lecture-copy.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 12,
+        },
+      ],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+      message: expect.stringContaining("資料ファイル の path が重複"),
+    });
+  });
+
+  it("rejects non-array top-level fields during preview", async () => {
+    const manifest = {
+      ...buildBaseManifest(),
+      notes: { broken: true },
+    };
+    const archiveBlob = await buildArchive(manifest);
+
+    await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+      message: expect.stringContaining("notes は配列"),
+    });
+  });
+
+  it("rejects non-string subject names during preview", async () => {
+    const base = buildBaseManifest();
+    const manifest = buildBaseManifest({
+      subjects: [
+        {
+          ...base.subjects[0],
+          name: 42,
+        },
+      ],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+      message: expect.stringContaining("subjects[0].name は文字列"),
+    });
+  });
+
+  it("rejects non-boolean period flags during preview", async () => {
+    const base = buildBaseManifest();
+    const manifest = buildBaseManifest({
+      periods: [
+        {
+          ...base.periods[0],
+          isEnabled: "yes",
+        },
+      ],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+      message: expect.stringContaining("periods[0].isEnabled は boolean"),
+    });
+  });
+
+  it("rejects non-array restoreSlotIds during preview", async () => {
+    const base = buildBaseManifest();
+    const manifest = buildBaseManifest({
+      subjects: [
+        {
+          ...base.subjects[0],
+          restoreSlotIds: "slot-1",
+        },
+      ],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+      message: expect.stringContaining("subjects[0].restoreSlotIds は配列"),
+    });
+  });
 });

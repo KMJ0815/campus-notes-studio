@@ -21,8 +21,8 @@ export function TimetablePage({ periods, slotItems, onSelectSubject, onCreateSub
   }, [slotItems]);
 
   return (
-    <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,384px)]">
-      <Panel>
+    <div className="grid min-w-0 gap-4 lg:gap-6 2xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,384px)]">
+      <Panel className="min-w-0">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">週次時間割</h3>
@@ -37,8 +37,9 @@ export function TimetablePage({ periods, slotItems, onSelectSubject, onCreateSub
           </div>
         </div>
 
-        <div className="mt-5">
+        <div className="mt-5 min-w-0">
           <TimetableGrid
+            className="min-w-0"
             periods={periods}
             renderCell={({ day, period }) => {
               const key = slotKey(day.key, period.periodNo);
@@ -53,9 +54,9 @@ export function TimetablePage({ periods, slotItems, onSelectSubject, onCreateSub
                     title={item.subject.name}
                   >
                     <div className="flex items-start gap-2.5">
-                      <div className="mt-0.5 h-9 w-2 shrink-0 rounded-full" style={{ backgroundColor: subjectColor(item.subject) }} />
+                      <div className="mt-0.5 h-8 w-2 shrink-0 rounded-full sm:h-9" style={{ backgroundColor: subjectColor(item.subject) }} />
                       <div className="min-w-0 flex-1">
-                        <p className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{item.subject.name}</p>
+                        <p className="line-clamp-2 text-xs font-semibold leading-5 text-slate-900 sm:text-sm">{item.subject.name}</p>
                         <p className="mt-1 truncate text-xs text-slate-500">{item.subject.room || "教室未設定"}</p>
                       </div>
                     </div>

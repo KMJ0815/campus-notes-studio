@@ -546,7 +546,7 @@ function App() {
     pushToast({
       tone: "info",
       title: "新しいバージョンがあります。",
-      description: "画面を一度リロードすると適用されます。",
+      description: "PWA 状態カードから更新を適用できます。",
       duration: 30000,
     });
   }, [pwaState.updateAvailable, pushToast]);
@@ -922,7 +922,7 @@ function App() {
           createAppError(error.code, "この出席記録は別の画面で更新または削除されています。開き直してから編集してください。"),
           "出席を保存できませんでした。",
         );
-        return;
+        throw error;
       }
       if (error?.code === "ATTENDANCE_SLOT_REQUIRED") {
         handleKnownError(createAppError("ATTENDANCE_SLOT_REQUIRED", "同じ日に複数コマがあるため、該当コマの選択が必要です。"), "出席を保存できませんでした。");
@@ -987,7 +987,9 @@ function App() {
 
   async function handleDeleteTodo(todo) {
     const todoTitle = todo.title?.trim() || "無題ToDo";
-    if (!window.confirm(`「${todoTitle}」を削除しますか？`)) return;
+    if (!window.confirm(`「${todoTitle}」を削除しますか？`)) {
+      return { status: "cancelled" };
+    }
     try {
       await withBusy(() => deleteTodo(todo.id));
       await Promise.all([
@@ -995,6 +997,7 @@ function App() {
         refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
       ]);
       pushToast({ tone: "success", title: "ToDo を削除しました。" });
+      return { status: "deleted" };
     } catch (error) {
       if (error?.code === "STALE_DRAFT") {
         await Promise.all([
@@ -1002,9 +1005,10 @@ function App() {
           refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
         ]);
         handleKnownError(error, "ToDo は既に削除されています。");
-        return;
+        return { status: "stale" };
       }
       handleKnownError(error, "ToDo の削除に失敗しました。");
+      throw error;
     }
   }
 

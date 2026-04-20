@@ -90,8 +90,8 @@ export function SubjectFormModal({ open, termKey, initialValue, periods, occupie
       maxWidth="max-w-5xl"
     >
       {draft ? (
-        <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-          <div className="space-y-4">
+        <div className="grid min-w-0 gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="min-w-0 space-y-4">
             <Field label="授業名">
               <TextInput
                 value={draft.name}
@@ -134,7 +134,7 @@ export function SubjectFormModal({ open, termKey, initialValue, periods, occupie
             </Field>
           </div>
 
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h4 className="text-sm font-semibold text-slate-900">時間割コマの割り当て</h4>

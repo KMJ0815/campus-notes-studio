@@ -218,11 +218,25 @@ export function SettingsModal({
 
   function handleOpenImportPicker() {
     setImportError("");
-    if (importFileInputRef.current?.showPicker) {
-      importFileInputRef.current.showPicker();
+    const input = importFileInputRef.current;
+    if (!input) {
+      setImportError("この環境ではファイル選択を開けませんでした。");
       return;
     }
-    importFileInputRef.current?.click();
+
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+        return;
+      }
+      input.click();
+    } catch {
+      try {
+        input.click();
+      } catch {
+        setImportError("この環境ではファイル選択を開けませんでした。");
+      }
+    }
   }
 
   async function handleImportFileChange(event) {

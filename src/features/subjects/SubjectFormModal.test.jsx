@@ -170,4 +170,32 @@ describe("SubjectFormModal", () => {
       );
     });
   });
+
+  it("uses the shared timetable grid with internal horizontal scroll on narrow widths", () => {
+    const { container } = render(
+      <SubjectFormModal
+        open
+        termKey="2026-spring"
+        initialValue={{
+          id: "subject-1",
+          termKey: "2026-spring",
+          name: "統計学",
+          teacherName: "",
+          room: "",
+          color: "#4f46e5",
+          memo: "",
+          isArchived: false,
+          selectedSlotKeys: [],
+        }}
+        periods={periods}
+        occupiedSlotMap={new Map()}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    const scrollFrame = container.querySelector(".overflow-x-auto");
+    expect(scrollFrame).not.toBeNull();
+    expect(scrollFrame?.firstElementChild?.className).toContain("min-w-[540px]");
+  });
 });
