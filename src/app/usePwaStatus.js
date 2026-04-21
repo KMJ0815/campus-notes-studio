@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isStandaloneMode } from "../lib/utils";
-import { shouldReloadOnControllerChange } from "./pwaShared";
+import { resolveWaitingServiceWorker, shouldReloadOnControllerChange } from "./pwaShared";
 
 export function usePwaStatus() {
   const baseUrl = import.meta.env.BASE_URL || "/";
@@ -42,17 +42,18 @@ export function usePwaStatus() {
 
     if ("serviceWorker" in navigator && window.isSecureContext && !isLocalDevHost) {
       const serviceWorkerUrl = new URL("sw.js", window.location.origin + baseUrl).toString();
-      const trackWaiting = (worker) => {
-        if (!worker) return;
-        waitingWorkerRef.current = worker;
-        setUpdateAvailable(true);
+      const syncWaitingState = (registration) => {
+        const waitingWorker = resolveWaitingServiceWorker(registration, Boolean(navigator.serviceWorker.controller));
+        waitingWorkerRef.current = waitingWorker;
+        setUpdateAvailable(Boolean(waitingWorker));
+        return waitingWorker;
       };
 
       const watchInstalling = (registration, worker) => {
         if (!worker) return;
         worker.addEventListener("statechange", () => {
-          if (worker.state === "installed" && navigator.serviceWorker.controller) {
-            trackWaiting(worker);
+          if (["installed", "activating", "activated", "redundant"].includes(worker.state)) {
+            syncWaitingState(registration);
           }
         });
       };
@@ -61,9 +62,7 @@ export function usePwaStatus() {
         .register(serviceWorkerUrl, { scope: baseUrl })
         .then((registration) => {
           setPwaRegistrationState("ready");
-          if (registration.waiting && navigator.serviceWorker.controller) {
-            trackWaiting(registration.waiting);
-          }
+          syncWaitingState(registration);
           registration.addEventListener("updatefound", () => {
             watchInstalling(registration, registration.installing);
           });

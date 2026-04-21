@@ -81,12 +81,16 @@ export function SubjectDetailPanel({
   const [attendanceSlotOptionsError, setAttendanceSlotOptionsError] = useState("");
   const [attendanceSlotReloadNonce, setAttendanceSlotReloadNonce] = useState(0);
   const [attendanceDateTouched, setAttendanceDateTouched] = useState(false);
+  const [savingAttendance, setSavingAttendance] = useState(false);
   const [quickTodoTitle, setQuickTodoTitle] = useState("");
   const [quickTodoDueDate, setQuickTodoDueDate] = useState("");
   const [savingQuickTodo, setSavingQuickTodo] = useState(false);
   const [todoEditorInitialValue, setTodoEditorInitialValue] = useState(null);
   const [showCompletedTodos, setShowCompletedTodos] = useState(false);
   const [pendingTodoIds, setPendingTodoIds] = useState(() => new Set());
+  const currentSubjectIdRef = useRef(header?.subject?.id || null);
+  const subjectSessionRef = useRef(0);
+  const savingAttendanceRef = useRef(false);
   const quickTodoSavePendingRef = useRef(false);
   const pendingTodoIdsRef = useRef(new Set());
   const defaultAttendanceLectureDate = useMemo(() => nextLectureDateForSlots(header?.slots || []), [header?.slots]);
@@ -101,8 +105,15 @@ export function SubjectDetailPanel({
   }
 
   useEffect(() => {
+    currentSubjectIdRef.current = header?.subject?.id || null;
+  }, [header?.subject?.id]);
+
+  useEffect(() => {
+    subjectSessionRef.current += 1;
     if (header?.subject?.id) {
       resetAttendanceDraft();
+      setSavingAttendance(false);
+      savingAttendanceRef.current = false;
       setQuickTodoTitle("");
       setQuickTodoDueDate("");
       setSavingQuickTodo(false);
@@ -114,6 +125,8 @@ export function SubjectDetailPanel({
     } else {
       setAttendanceDraft(null);
       setAttendanceDateTouched(false);
+      setSavingAttendance(false);
+      savingAttendanceRef.current = false;
       setQuickTodoTitle("");
       setQuickTodoDueDate("");
       setSavingQuickTodo(false);
@@ -150,7 +163,7 @@ export function SubjectDetailPanel({
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!header?.subject?.id || !attendanceDraft?.lectureDate) {
+      if (detailTab !== DETAIL_TABS.attendance || !header?.subject?.id || !attendanceDraft?.lectureDate) {
         setAttendanceSlotOptions([]);
         setAttendanceSlotOptionsReady(false);
         setAttendanceSlotOptionsError("");
@@ -178,9 +191,10 @@ export function SubjectDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [attendanceDraft?.lectureDate, attendanceDraft?.timetableSlotId, attendanceSlotReloadNonce, header?.subject?.id, loadAttendanceSlotOptions]);
+  }, [attendanceDraft?.lectureDate, attendanceDraft?.timetableSlotId, attendanceSlotReloadNonce, detailTab, header?.subject?.id, loadAttendanceSlotOptions]);
 
   useEffect(() => {
+    if (detailTab !== DETAIL_TABS.attendance) return;
     if (!attendanceDraft || attendanceDraft.id || attendanceDateTouched) return;
     if (!attendanceDraft.lectureDate || !attendanceSlotOptionsReady || attendanceSlotOptions.length > 0 || attendanceSlotOptionsError) return;
     if (!header?.slots?.some((slot) => slot.activeSlotKey)) return;
@@ -203,6 +217,7 @@ export function SubjectDetailPanel({
     attendanceSlotOptionsError,
     attendanceSlotOptions.length,
     attendanceSlotOptionsReady,
+    detailTab,
     header?.slots,
   ]);
 
@@ -253,11 +268,21 @@ export function SubjectDetailPanel({
   }
 
   async function handleSaveAttendance() {
+    if (!attendanceDraft || savingAttendanceRef.current || attendanceSlotOptionsError) return;
+    const subjectId = header?.subject?.id || null;
+    const sessionId = subjectSessionRef.current;
+    savingAttendanceRef.current = true;
+    setSavingAttendance(true);
     try {
       await onSaveAttendance(attendanceDraft);
+      if (subjectSessionRef.current !== sessionId || currentSubjectIdRef.current !== subjectId) return;
       resetAttendanceDraft();
     } catch {
       return;
+    } finally {
+      if (subjectSessionRef.current !== sessionId || currentSubjectIdRef.current !== subjectId) return;
+      savingAttendanceRef.current = false;
+      setSavingAttendance(false);
     }
   }
 
@@ -300,6 +325,8 @@ export function SubjectDetailPanel({
     event?.preventDefault();
     if (!header?.subject?.id || !quickTodoTitle.trim() || quickTodoSavePendingRef.current) return;
 
+    const subjectId = header.subject.id;
+    const sessionId = subjectSessionRef.current;
     quickTodoSavePendingRef.current = true;
     setSavingQuickTodo(true);
     let didSave = false;
@@ -314,6 +341,7 @@ export function SubjectDetailPanel({
     } catch {
       return;
     } finally {
+      if (subjectSessionRef.current !== sessionId || currentSubjectIdRef.current !== subjectId) return;
       if (didSave) {
         setQuickTodoTitle("");
         setQuickTodoDueDate("");
@@ -559,6 +587,7 @@ export function SubjectDetailPanel({
                 {attendanceDraft?.id ? (
                   <IconButton
                     tone="light"
+                    disabled={savingAttendance}
                     onClick={() => {
                       resetAttendanceDraft();
                     }}
@@ -572,6 +601,7 @@ export function SubjectDetailPanel({
                   <TextInput
                     type="date"
                     value={attendanceDraft?.lectureDate ?? ""}
+                    disabled={savingAttendance}
                     onChange={(event) => {
                       setAttendanceDateTouched(true);
                       setAttendanceSlotOptionsError("");
@@ -582,7 +612,7 @@ export function SubjectDetailPanel({
                 {attendanceSlotOptionsError ? (
                   <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
                     <span>{attendanceSlotOptionsError}</span>
-                    <IconButton tone="light" className="shrink-0" onClick={() => setAttendanceSlotReloadNonce((current) => current + 1)}>
+                    <IconButton tone="light" className="shrink-0" disabled={savingAttendance} onClick={() => setAttendanceSlotReloadNonce((current) => current + 1)}>
                       再試行
                     </IconButton>
                   </div>
@@ -596,6 +626,7 @@ export function SubjectDetailPanel({
                   <Field label="該当コマ">
                     <SelectInput
                       value={attendanceDraft?.timetableSlotId || ""}
+                      disabled={savingAttendance}
                       onChange={(event) => setAttendanceDraft((draft) => ({ ...draft, timetableSlotId: event.target.value }))}
                     >
                       <option value="">コマを選択</option>
@@ -609,7 +640,11 @@ export function SubjectDetailPanel({
                 ) : null}
 
                 <Field label="ステータス">
-                  <SelectInput value={attendanceDraft?.status || "present"} onChange={(event) => setAttendanceDraft((draft) => ({ ...draft, status: event.target.value }))}>
+                  <SelectInput
+                    value={attendanceDraft?.status || "present"}
+                    disabled={savingAttendance}
+                    onChange={(event) => setAttendanceDraft((draft) => ({ ...draft, status: event.target.value }))}
+                  >
                     {ATTENDANCE_STATUS_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
@@ -618,11 +653,21 @@ export function SubjectDetailPanel({
                   </SelectInput>
                 </Field>
                 <Field label="メモ">
-                  <TextArea rows={3} value={attendanceDraft?.memo || ""} onChange={(event) => setAttendanceDraft((draft) => ({ ...draft, memo: event.target.value }))} placeholder="補足があればここに" />
+                  <TextArea
+                    rows={3}
+                    value={attendanceDraft?.memo || ""}
+                    disabled={savingAttendance}
+                    onChange={(event) => setAttendanceDraft((draft) => ({ ...draft, memo: event.target.value }))}
+                    placeholder="補足があればここに"
+                  />
                 </Field>
                 <div className="flex justify-end">
-                  <IconButton icon={CheckCircle2} onClick={handleSaveAttendance} disabled={Boolean(attendanceSlotOptionsError)}>
-                    保存
+                  <IconButton
+                    icon={CheckCircle2}
+                    onClick={handleSaveAttendance}
+                    disabled={savingAttendance || Boolean(attendanceSlotOptionsError)}
+                  >
+                    {savingAttendance ? "保存中…" : "保存"}
                   </IconButton>
                 </div>
               </div>
@@ -652,8 +697,8 @@ export function SubjectDetailPanel({
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <IconActionButton onClick={() => startEditAttendance(record)} icon={Pencil} label="出席を編集" />
-                        <IconActionButton onClick={() => onDeleteAttendance(record)} icon={Trash2} label="出席を削除" tone="danger" />
+                        <IconActionButton onClick={() => startEditAttendance(record)} icon={Pencil} label="出席を編集" disabled={savingAttendance} />
+                        <IconActionButton onClick={() => onDeleteAttendance(record)} icon={Trash2} label="出席を削除" tone="danger" disabled={savingAttendance} />
                       </div>
                     </div>
                     {record.memo ? <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">{record.memo}</p> : null}

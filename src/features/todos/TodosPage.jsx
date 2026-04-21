@@ -126,6 +126,8 @@ export function TodosPage({
           baseUpdatedAt: todo.updatedAt,
         }),
       });
+    } catch {
+      return;
     } finally {
       endTodoPending(todo.id);
     }
@@ -139,6 +141,8 @@ export function TodosPage({
       if ((status === "deleted" || status === "stale") && todoEditorInitialValue?.id === todo.id) {
         closeTodoEditor();
       }
+    } catch {
+      return;
     } finally {
       endTodoPending(todo.id);
     }

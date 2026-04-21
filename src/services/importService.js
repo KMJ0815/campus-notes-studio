@@ -56,6 +56,35 @@ function assertPositiveIntegerField(value, label) {
   }
 }
 
+function assertObjectField(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw createAppError("IMPORT_INVALID", `${label} は object である必要があります。`);
+  }
+}
+
+function assertOptionalSlotSnapshotField(value, label) {
+  if (value === undefined || value === null) return;
+  assertObjectField(value, label);
+  assertStringField(value.weekday, `${label}.weekday`, { allowEmpty: false });
+  assertPositiveIntegerField(value.periodNo, `${label}.periodNo`);
+  assertStringField(value.label, `${label}.label`, { allowEmpty: false });
+  assertStringField(value.startTime, `${label}.startTime`);
+  assertStringField(value.endTime, `${label}.endTime`);
+  assertBooleanField(value.isHistorical, `${label}.isHistorical`);
+}
+
+function validateSlotSnapshot(snapshot, label) {
+  if (!VALID_WEEKDAY_KEYS.has(snapshot.weekday)) {
+    throw createAppError("IMPORT_INVALID", `${label} の曜日が不正です。`);
+  }
+  if ((snapshot.startTime && !snapshot.endTime) || (!snapshot.startTime && snapshot.endTime)) {
+    throw createAppError("IMPORT_INVALID", `${label} の開始時刻と終了時刻は両方指定する必要があります。`);
+  }
+  if (snapshot.startTime && snapshot.endTime && snapshot.startTime >= snapshot.endTime) {
+    throw createAppError("IMPORT_INVALID", `${label} の開始・終了時刻が不正です。`);
+  }
+}
+
 function ensureUniqueIds(items, label) {
   const seen = new Set();
   for (const item of items) {
@@ -188,6 +217,7 @@ function validateManifestShape(manifest) {
     assertOptionalStringField(record.timetableSlotId, `attendance[${index}].timetableSlotId`);
     assertStringField(record.status, `attendance[${index}].status`, { allowEmpty: false });
     assertOptionalStringField(record.memo, `attendance[${index}].memo`);
+    assertOptionalSlotSnapshotField(record.slotSnapshot, `attendance[${index}].slotSnapshot`);
   });
 
   manifest.todos.forEach((todo, index) => {
@@ -365,6 +395,9 @@ function validateManifest(data, zip) {
   data.notes.forEach((note) => {
     validateSubjectRecord(note, "ノート");
     assertDateOnly(note.lectureDate, `ノート ${note.id}`);
+    if (!note.title.trim() && !note.bodyText.trim()) {
+      throw createAppError("IMPORT_INVALID", `ノート ${note.id} はタイトルか本文のどちらかが必要です。`);
+    }
   });
   data.materialMeta.forEach((material) => validateSubjectRecord(material, "資料"));
   data.todos.forEach((todo) => {
@@ -387,12 +420,26 @@ function validateManifest(data, zip) {
     if (!ATTENDANCE_STATUS_VALUES.has(record.status)) {
       throw createAppError("IMPORT_INVALID", `出席記録 ${record.id} の状態が不正です。`);
     }
+    if (record.slotSnapshot) {
+      validateSlotSnapshot(record.slotSnapshot, `出席記録 ${record.id} の slotSnapshot`);
+    }
     if (record.timetableSlotId) {
       const slot = slotMap.get(record.timetableSlotId);
       if (!slot || slot.subjectId !== record.subjectId) {
         throw createAppError("IMPORT_INVALID", `出席記録 ${record.id} のコマ参照が不正です。`);
       }
     }
+  }
+
+  const artifact = data.artifact || {
+    includesMaterialFiles: data.materialFiles.length > 0,
+    hasMissingMaterialFiles: false,
+  };
+  if (!artifact.includesMaterialFiles && artifact.hasMissingMaterialFiles) {
+    throw createAppError("IMPORT_INVALID", "artifact の資料ファイル設定が矛盾しています。");
+  }
+  if (!artifact.includesMaterialFiles && data.materialFiles.length > 0) {
+    throw createAppError("IMPORT_INVALID", "資料ファイルを含めない backup に materialFiles が含まれています。");
   }
 
   const materialFileMap = new Map();
@@ -405,7 +452,7 @@ function validateManifest(data, zip) {
 
   for (const material of data.materialMeta) {
     const expectedPath = materialFileMap.get(material.id)?.path || buildMaterialArchivePath(material);
-    if (!zip.file(expectedPath)) {
+    if (artifact.includesMaterialFiles && !zip.file(expectedPath)) {
       warnings.push({
         code: "MISSING_MATERIAL_FILE",
         materialId: material.id,
@@ -423,6 +470,7 @@ function buildPreview(data, validation) {
     exportedAt: data.exportedAt,
     currentTermKey: data.settings.currentTermKey,
     currentTermLabel: data.settings.termLabel,
+    artifact: data.artifact,
     counts: {
       termMeta: data.termMeta.length,
       periods: data.periods.length,
@@ -527,6 +575,7 @@ function normalizeImportData(manifest) {
     version: manifest.version,
     exportedAt: manifest.exportedAt,
     settings,
+    artifact: manifest.artifact,
     termMeta,
     periods,
     subjects,
@@ -641,10 +690,18 @@ export async function applyImportArchive(archive) {
     throw wrapImportTransactionError(error);
   }
 
-  await clearMaterialFileStorage().catch(() => {});
+  const warnings = [...validation.warnings];
+  try {
+    await clearMaterialFileStorage();
+  } catch (error) {
+    warnings.push({
+      code: "MATERIAL_STORAGE_CLEANUP_FAILED",
+      message: error?.message || "古い資料ファイルのクリーンアップに失敗しました。",
+    });
+  }
 
   return {
-    warnings: validation.warnings,
+    warnings,
     importedCounts: {
       ...buildPreview(normalized, validation).counts,
       materialFilesRestored: materialFiles.length,

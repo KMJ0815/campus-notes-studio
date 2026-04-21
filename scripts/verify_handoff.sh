@@ -47,8 +47,10 @@ require_prefix "scripts"
 
 EXPECTED_LIST=$(mktemp)
 ACTUAL_LIST=$(mktemp)
+EXTRACT_DIR=$(mktemp -d)
 cleanup() {
   rm -f "$EXPECTED_LIST" "$ACTUAL_LIST"
+  rm -rf "$EXTRACT_DIR"
 }
 trap cleanup EXIT INT TERM
 
@@ -76,4 +78,17 @@ if ! cmp -s "$EXPECTED_LIST" "$ACTUAL_LIST"; then
   exit 1
 fi
 
-echo "handoff ZIP は source-only で、必須ファイルが揃っており current tree と一致しています。"
+unzip -qq "$ZIP_PATH" -d "$EXTRACT_DIR"
+
+while IFS= read -r path; do
+  if [ ! -f "$EXTRACT_DIR/$path" ]; then
+    echo "handoff ZIP にファイルが見つかりません: $path" >&2
+    exit 1
+  fi
+  if ! cmp -s "$path" "$EXTRACT_DIR/$path"; then
+    echo "handoff ZIP のファイル内容が current tree と一致していません: $path" >&2
+    exit 1
+  fi
+done < "$EXPECTED_LIST"
+
+echo "handoff ZIP は source-only で、必須ファイルが揃っており current tree と内容まで一致しています。"

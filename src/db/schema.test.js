@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDB } from "idb";
 import { DB_NAME, SETTINGS_ID } from "../lib/constants";
-import { deleteAppDb, getDb, resetDbConnection } from "./schema";
+import { deleteAppDb, ensureSeedData, getDb, resetDbConnection } from "./schema";
 
 async function createV1Database() {
   const db = await openDB(DB_NAME, 1, {
@@ -121,5 +121,20 @@ describe("schema migration", () => {
     expect(await db.getAllFromIndex("attendance", "byTermKey", "2026-spring")).toHaveLength(1);
     expect(await db.getAllFromIndex("material_meta", "byTermKey", "2026-spring")).toHaveLength(1);
     expect(todoItems).toEqual([]);
+  });
+
+  it("backfills exportIncludeFiles for legacy settings records", async () => {
+    const db = await getDb();
+    await db.put("settings", {
+      id: SETTINGS_ID,
+      currentTermKey: "2026-spring",
+      termLabel: "2026年度 春学期",
+      updatedAt: "2026-04-17T12:00:00.000Z",
+    });
+
+    await ensureSeedData();
+
+    const settings = await db.get("settings", SETTINGS_ID);
+    expect(settings.exportIncludeFiles).toBe(true);
   });
 });

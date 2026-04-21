@@ -242,6 +242,40 @@ describe("importService", () => {
     expect(await db.get("material_files", "material-1")).toBeUndefined();
   });
 
+  it("treats metadata-only backups as informational instead of missing-file warnings", async () => {
+    const manifest = buildBaseManifest({
+      artifact: {
+        includesMaterialFiles: false,
+        hasMissingMaterialFiles: false,
+      },
+      settings: {
+        id: "app-settings",
+        currentTermKey: "2026-fall",
+        termLabel: "2026年度 秋学期",
+        exportIncludeFiles: false,
+        updatedAt: "2026-04-20T00:00:00.000Z",
+      },
+      materialFiles: [],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    const { preview, archive } = await readImportArchive(archiveBlob);
+    expect(preview.artifact).toEqual({
+      includesMaterialFiles: false,
+      hasMissingMaterialFiles: false,
+    });
+    expect(preview.warnings).toHaveLength(0);
+
+    const result = await applyImportArchive(archive);
+    expect(result.warnings).toHaveLength(0);
+    expect(result.importedCounts.materialFiles).toBe(0);
+    expect(result.importedCounts.materialFilesRestored).toBe(0);
+
+    const db = await getDb();
+    expect(await db.get("material_meta", "material-1")).toBeTruthy();
+    expect(await db.get("material_files", "material-1")).toBeUndefined();
+  });
+
   it("rejects duplicate logical slots during preview after activeSlotKey normalization", async () => {
     const manifest = buildBaseManifest({
       slots: [
@@ -604,6 +638,50 @@ describe("importService", () => {
     await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
       code: "IMPORT_INVALID",
       message: expect.stringContaining("todos[0].title が空"),
+    });
+  });
+
+  it("rejects notes whose title and body are both blank during preview", async () => {
+    const base = buildBaseManifest();
+    const manifest = buildBaseManifest({
+      notes: [
+        {
+          ...base.notes[0],
+          title: "   ",
+          bodyText: " ",
+        },
+      ],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+      message: expect.stringContaining("タイトルか本文のどちらか"),
+    });
+  });
+
+  it("rejects malformed attendance slotSnapshot data during preview", async () => {
+    const base = buildBaseManifest();
+    const manifest = buildBaseManifest({
+      attendance: [
+        {
+          ...base.attendance[0],
+          slotSnapshot: {
+            weekday: "sun",
+            periodNo: "1",
+            label: "履歴1限",
+            startTime: "09:00",
+            endTime: "10:40",
+            isHistorical: true,
+          },
+        },
+      ],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+      message: expect.stringContaining("attendance[0].slotSnapshot.periodNo は 1 以上の整数"),
     });
   });
 });

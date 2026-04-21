@@ -230,6 +230,79 @@ describe("SubjectDetailPanel", () => {
     expect(screen.getAllByDisplayValue("2026-04-20").length).toBeGreaterThan(0);
   });
 
+  it("does not load attendance slot options while another tab is active", async () => {
+    const loadAttendanceSlotOptions = vi.fn().mockResolvedValue([]);
+    const baseProps = {
+      header: {
+        subject: {
+          id: "subject-1",
+          name: "統計学",
+          teacherName: "山田",
+          room: "301",
+          color: "#4f46e5",
+          isArchived: false,
+          memo: "",
+        },
+        slots: [
+          {
+            id: "slot-1",
+            weekday: "mon",
+            periodNo: 1,
+            activeSlotKey: "2026-spring:mon:1",
+          },
+        ],
+        periods: [{ periodNo: 1, label: "1限", startTime: "09:00", endTime: "10:40" }],
+        notesCount: 0,
+        materialsCount: 0,
+        attendanceCount: 0,
+      },
+      tabLoading: false,
+      notes: [],
+      materials: [],
+      attendance: [],
+      todos: [],
+      onChangeTab: vi.fn(),
+      onEditSubject: vi.fn(),
+      onArchiveSubject: vi.fn(),
+      onCreateNote: vi.fn(),
+      onEditNote: vi.fn(),
+      onDeleteNote: vi.fn(),
+      onUploadMaterials: vi.fn(),
+      onOpenMaterial: vi.fn(),
+      onEditMaterial: vi.fn(),
+      onDeleteMaterial: vi.fn(),
+      onMaterialPickerError: vi.fn(),
+      onMaterialPickerOpen: vi.fn(),
+      onSaveAttendance: vi.fn(),
+      onDeleteAttendance: vi.fn(),
+      loadAttendanceSlotOptions,
+      onSaveTodo: vi.fn(),
+      onDeleteTodo: vi.fn(),
+    };
+
+    const { rerender } = render(
+      <SubjectDetailPanel
+        {...baseProps}
+        detailTab={DETAIL_TABS.notes}
+      />,
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(loadAttendanceSlotOptions).not.toHaveBeenCalled();
+
+    rerender(
+      <SubjectDetailPanel
+        {...baseProps}
+        detailTab={DETAIL_TABS.attendance}
+      />,
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(loadAttendanceSlotOptions).toHaveBeenCalledTimes(1);
+  });
+
   it("shows hydrated attendance slot labels instead of generic text", () => {
     render(
       <SubjectDetailPanel
@@ -900,6 +973,271 @@ describe("SubjectDetailPanel", () => {
 
     expect(onSaveAttendance).toHaveBeenCalledTimes(1);
     expect(screen.getByDisplayValue("保存失敗でも残るメモ")).not.toBeNull();
+  });
+
+  it("keeps the next subject attendance draft intact when a previous subject save resolves later", async () => {
+    const deferred = createDeferred();
+    const onSaveAttendance = vi.fn().mockImplementation((draft) => {
+      if (draft.subjectId === "subject-1") return deferred.promise;
+      return Promise.resolve();
+    });
+    const props = {
+      detailTab: DETAIL_TABS.attendance,
+      tabLoading: false,
+      notes: [],
+      materials: [],
+      attendance: [],
+      todos: [],
+      onChangeTab: vi.fn(),
+      onEditSubject: vi.fn(),
+      onArchiveSubject: vi.fn(),
+      onCreateNote: vi.fn(),
+      onEditNote: vi.fn(),
+      onDeleteNote: vi.fn(),
+      onUploadMaterials: vi.fn(),
+      onOpenMaterial: vi.fn(),
+      onEditMaterial: vi.fn(),
+      onDeleteMaterial: vi.fn(),
+      onMaterialPickerError: vi.fn(),
+      onMaterialPickerOpen: vi.fn(),
+      onSaveAttendance,
+      onDeleteAttendance: vi.fn(),
+      loadAttendanceSlotOptions: vi.fn().mockResolvedValue([]),
+      onSaveTodo: vi.fn(),
+      onDeleteTodo: vi.fn(),
+    };
+
+    const { rerender } = render(
+      <SubjectDetailPanel
+        {...props}
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [{ periodNo: 1, label: "1限", startTime: "09:00", endTime: "10:40" }],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("メモ"), {
+      target: { value: "A のメモ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    rerender(
+      <SubjectDetailPanel
+        {...props}
+        header={{
+          subject: {
+            id: "subject-2",
+            name: "解析学",
+            teacherName: "佐藤",
+            room: "302",
+            color: "#0f766e",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [{ periodNo: 1, label: "1限", startTime: "09:00", endTime: "10:40" }],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("メモ"), {
+      target: { value: "B のメモ" },
+    });
+
+    deferred.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(screen.getByDisplayValue("B のメモ")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "保存" }).disabled).toBe(false);
+  });
+
+  it("prevents duplicate attendance saves while a save is pending", async () => {
+    const deferred = createDeferred();
+    const onSaveAttendance = vi.fn().mockImplementation(() => deferred.promise);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [{ periodNo: 1, label: "1限", startTime: "09:00", endTime: "10:40" }],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.attendance}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={onSaveAttendance}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    const saveButton = screen.getByRole("button", { name: "保存" });
+    const dateInput = screen.getByDisplayValue("2026-04-18");
+    const memoInput = screen.getByLabelText("メモ");
+
+    fireEvent.change(memoInput, {
+      target: { value: "二重送信しない" },
+    });
+    fireEvent.click(saveButton);
+    fireEvent.click(saveButton);
+
+    expect(onSaveAttendance).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "保存中…" }).disabled).toBe(true);
+    expect(dateInput.disabled).toBe(true);
+    expect(memoInput.disabled).toBe(true);
+
+    deferred.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(screen.getByRole("button", { name: "保存" }).disabled).toBe(false);
+  });
+
+  it("keeps the next subject quick todo input intact when a previous subject save resolves later", async () => {
+    const deferred = createDeferred();
+    const onSaveTodo = vi.fn().mockImplementation((draft) => {
+      if (draft.subjectId === "subject-1") return deferred.promise;
+      return Promise.resolve();
+    });
+    const props = {
+      detailTab: DETAIL_TABS.todos,
+      tabLoading: false,
+      notes: [],
+      materials: [],
+      attendance: [],
+      todos: [],
+      onChangeTab: vi.fn(),
+      onEditSubject: vi.fn(),
+      onArchiveSubject: vi.fn(),
+      onCreateNote: vi.fn(),
+      onEditNote: vi.fn(),
+      onDeleteNote: vi.fn(),
+      onUploadMaterials: vi.fn(),
+      onOpenMaterial: vi.fn(),
+      onEditMaterial: vi.fn(),
+      onDeleteMaterial: vi.fn(),
+      onMaterialPickerError: vi.fn(),
+      onMaterialPickerOpen: vi.fn(),
+      onSaveAttendance: vi.fn(),
+      onDeleteAttendance: vi.fn(),
+      loadAttendanceSlotOptions: vi.fn().mockResolvedValue([]),
+      onSaveTodo,
+      onDeleteTodo: vi.fn(),
+    };
+
+    const { rerender } = render(
+      <SubjectDetailPanel
+        {...props}
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("ToDoタイトル"), { target: { value: "A の課題" } });
+    fireEvent.change(screen.getByLabelText("ToDo期限日"), { target: { value: "2026-04-25" } });
+    fireEvent.click(screen.getByRole("button", { name: "追加" }));
+
+    rerender(
+      <SubjectDetailPanel
+        {...props}
+        header={{
+          subject: {
+            id: "subject-2",
+            name: "解析学",
+            teacherName: "佐藤",
+            room: "302",
+            color: "#0f766e",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("ToDoタイトル"), { target: { value: "B の課題" } });
+    fireEvent.change(screen.getByLabelText("ToDo期限日"), { target: { value: "2026-04-26" } });
+
+    deferred.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(screen.getByLabelText("ToDoタイトル").value).toBe("B の課題");
+    expect(screen.getByLabelText("ToDo期限日").value).toBe("2026-04-26");
+    expect(screen.getByRole("button", { name: "追加" }).disabled).toBe(false);
   });
 
   it("edits an existing todo in the modal", async () => {

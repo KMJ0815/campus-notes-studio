@@ -121,9 +121,9 @@ export async function getMaterialFile(materialId, options = {}) {
   };
 
   const readOrder = options.preferredStorage === "indexeddb"
-    ? [readIndexedDb, readOpfs]
+    ? [readIndexedDb]
     : options.preferredStorage === "opfs"
-      ? [readOpfs, readIndexedDb]
+      ? [readOpfs]
       : [readOpfs, readIndexedDb];
 
   for (const readFile of readOrder) {
@@ -139,8 +139,11 @@ export async function clearMaterialFileStorage() {
   try {
     const root = await getOpfsRoot();
     await root.removeEntry("campus-notes-materials", { recursive: true });
-  } catch {
-    // Best-effort cleanup only.
+  } catch (error) {
+    if (error?.name === "NotFoundError") return;
+    throw createAppError("MATERIAL_STORAGE_CLEANUP_FAILED", "古い資料ファイルのクリーンアップに失敗しました。", {
+      cause: error,
+    });
   }
 }
 

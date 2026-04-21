@@ -402,6 +402,13 @@ export async function ensureSeedData() {
     return;
   }
 
+  if (settings.exportIncludeFiles === undefined) {
+    await db.put("settings", {
+      ...settings,
+      exportIncludeFiles: true,
+    });
+  }
+
   const currentTermMeta = await db.get(TERM_META_STORE, settings.currentTermKey);
   if (!currentTermMeta) {
     await db.put(TERM_META_STORE, {

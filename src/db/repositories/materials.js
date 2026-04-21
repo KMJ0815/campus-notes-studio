@@ -7,8 +7,7 @@ import { fileExtension, nowIso, sortByUpdated, triggerDownload, uid } from "../.
 import { getDb } from "../schema";
 import { deleteMaterialFile, getMaterialFile, saveMaterialFile } from "../../services/materialFileStore";
 
-const MATERIAL_URL_TTL_MS = 60000;
-const openedMaterialUrls = new Set();
+const openedMaterialUrls = new Map();
 let pagehideBound = false;
 const PREVIEW_MIME_TYPES = new Set([
   "application/pdf",
@@ -16,6 +15,13 @@ const PREVIEW_MIME_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
+const PREVIEW_MIME_TYPES_BY_EXTENSION = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+};
 const ALLOWED_MIME_TYPES_BY_EXTENSION = {
   pdf: new Set(["application/pdf"]),
   txt: new Set(["text/plain"]),
@@ -37,10 +43,9 @@ const ALLOWED_MIME_TYPES_BY_EXTENSION = {
 function ensureMaterialUrlCleanup() {
   if (pagehideBound || typeof window === "undefined") return;
   window.addEventListener("pagehide", () => {
-    for (const url of openedMaterialUrls) {
-      URL.revokeObjectURL(url);
+    for (const url of [...openedMaterialUrls.keys()]) {
+      cleanupMaterialUrl(url);
     }
-    openedMaterialUrls.clear();
   });
   pagehideBound = true;
 }
@@ -49,12 +54,56 @@ function normalizeMimeType(value) {
   return String(value || "").split(";")[0].trim().toLowerCase();
 }
 
-function scheduleMaterialUrlRevoke(url) {
-  setTimeout(() => {
-    if (!openedMaterialUrls.has(url)) return;
-    URL.revokeObjectURL(url);
-    openedMaterialUrls.delete(url);
-  }, MATERIAL_URL_TTL_MS);
+function isGenericMimeType(mimeType) {
+  return !mimeType || ["application/octet-stream", "binary/octet-stream", "application/unknown"].includes(mimeType);
+}
+
+function inferPreviewMimeTypeFromExtension(fileExt) {
+  return PREVIEW_MIME_TYPES_BY_EXTENSION[fileExt || ""] || "";
+}
+
+function resolveMaterialMimeType(mimeType, fileExt) {
+  const normalizedMime = normalizeMimeType(mimeType);
+  if (PREVIEW_MIME_TYPES.has(normalizedMime)) return normalizedMime;
+  if (isGenericMimeType(normalizedMime)) {
+    return inferPreviewMimeTypeFromExtension(fileExt) || "";
+  }
+  return normalizedMime;
+}
+
+function resolvePreviewMimeType({ mimeType, fileExt }) {
+  const normalizedMime = normalizeMimeType(mimeType);
+  if (PREVIEW_MIME_TYPES.has(normalizedMime)) return normalizedMime;
+  const inferredMime = inferPreviewMimeTypeFromExtension(fileExt);
+  if (!inferredMime) return "";
+  return isGenericMimeType(normalizedMime) ? inferredMime : "";
+}
+
+function cleanupMaterialUrl(url) {
+  const entry = openedMaterialUrls.get(url);
+  if (!entry) return;
+  if (entry.closeWatcherId && typeof window !== "undefined") {
+    window.clearInterval(entry.closeWatcherId);
+  }
+  URL.revokeObjectURL(url);
+  openedMaterialUrls.delete(url);
+}
+
+function trackMaterialUrl(url, previewWindow) {
+  ensureMaterialUrlCleanup();
+  const entry = { closeWatcherId: null };
+  if (previewWindow && typeof window !== "undefined") {
+    entry.closeWatcherId = window.setInterval(() => {
+      if (!previewWindow.closed) return;
+      cleanupMaterialUrl(url);
+    }, 1000);
+  }
+  openedMaterialUrls.set(url, entry);
+}
+
+function createPreviewBlob(blob, mimeType) {
+  if (!mimeType || normalizeMimeType(blob?.type) === mimeType) return blob;
+  return new Blob([blob], { type: mimeType });
 }
 
 function validateMaterialFile(file) {
@@ -98,7 +147,7 @@ async function createMaterial(subjectId, file, note = "") {
       subjectId,
       termKey: subject.termKey,
       displayName: file.name,
-      mimeType: file.type || "application/octet-stream",
+      mimeType: resolveMaterialMimeType(file.type, extension),
       fileExt: extension,
       storageBackend: saveResult?.storage || "indexeddb",
       sizeBytes: file.size,
@@ -174,19 +223,7 @@ export async function updateMaterialNote(materialId, note, baseUpdatedAt = null)
 }
 
 function shouldPreviewMaterial({ mimeType, fileExt }) {
-  const normalizedMime = normalizeMimeType(mimeType);
-  if (normalizedMime) return PREVIEW_MIME_TYPES.has(normalizedMime);
-  return PREVIEW_MIME_TYPES.has(
-    fileExt === "pdf"
-      ? "application/pdf"
-      : fileExt === "jpg" || fileExt === "jpeg"
-        ? "image/jpeg"
-        : fileExt === "png"
-          ? "image/png"
-          : fileExt === "webp"
-            ? "image/webp"
-            : "",
-  );
+  return Boolean(resolvePreviewMimeType({ mimeType, fileExt }));
 }
 
 export async function openMaterial(meta) {
@@ -201,9 +238,10 @@ export async function openMaterial(meta) {
       throw createAppError("MATERIAL_MISSING", "ファイル本体が見つかりませんでした。");
     }
 
-    const actualMimeType = normalizeMimeType(file.blob.type || meta.mimeType);
     const actualFileExt = meta.fileExt || fileExtension(meta.displayName);
-    const previewAllowed = shouldPreviewMaterial({ mimeType: actualMimeType, fileExt: actualFileExt });
+    const actualMimeType = resolveMaterialMimeType(file.blob.type || meta.mimeType, actualFileExt);
+    const previewMimeType = resolvePreviewMimeType({ mimeType: actualMimeType, fileExt: actualFileExt });
+    const previewAllowed = Boolean(previewMimeType);
 
     if (!previewAllowed) {
       if (previewWindow) previewWindow.close();
@@ -216,10 +254,9 @@ export async function openMaterial(meta) {
       return { downloaded: true, blocked: true };
     }
 
-    ensureMaterialUrlCleanup();
-    const url = URL.createObjectURL(file.blob);
-    openedMaterialUrls.add(url);
-    scheduleMaterialUrlRevoke(url);
+    const previewBlob = createPreviewBlob(file.blob, previewMimeType);
+    const url = URL.createObjectURL(previewBlob);
+    trackMaterialUrl(url, previewWindow);
     previewWindow.location.href = url;
     return { downloaded: false, blocked: false };
   } catch (error) {

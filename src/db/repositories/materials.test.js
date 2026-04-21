@@ -33,6 +33,7 @@ describe("materials repository", () => {
 
   afterEach(async () => {
     window.dispatchEvent(new Event("pagehide"));
+    vi.useRealTimers();
     vi.restoreAllMocks();
     await deleteAppDb();
     resetDbConnection();
@@ -107,6 +108,100 @@ describe("materials repository", () => {
     window.dispatchEvent(new Event("pagehide"));
 
     expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:material-1");
+  });
+
+  it("stores an inferred preview mime type when the uploaded file has no browser mime", async () => {
+    saveMaterialFile.mockResolvedValue({ storage: "indexeddb" });
+
+    await saveMaterialsBatch(subjectId, [
+      new File(["pdf"], "lecture.pdf"),
+    ]);
+
+    const db = await getDb();
+    const [material] = await db.getAll("material_meta");
+    expect(material.mimeType).toBe("application/pdf");
+  });
+
+  it("rebuilds preview blobs with the inferred mime type when stored blobs come back empty from OPFS", async () => {
+    if (!URL.createObjectURL) {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        writable: true,
+        value: () => "",
+      });
+    }
+
+    getMaterialFile.mockResolvedValue({
+      exists: true,
+      blob: new Blob(["lecture"]),
+      storage: "opfs",
+    });
+
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:opfs-material-1");
+    const previewWindow = {
+      location: { href: "" },
+      close: vi.fn(),
+      closed: false,
+    };
+    vi.spyOn(window, "open").mockReturnValue(previewWindow);
+
+    await openMaterial({
+      id: "material-1",
+      mimeType: "",
+      fileExt: "pdf",
+      displayName: "lecture.pdf",
+      storageBackend: "opfs",
+    });
+
+    expect(createObjectUrlSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "application/pdf",
+      }),
+    );
+    expect(previewWindow.location.href).toBe("blob:opfs-material-1");
+  });
+
+  it("keeps preview urls alive until the preview window closes", async () => {
+    vi.useFakeTimers();
+    if (!URL.createObjectURL) {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        writable: true,
+        value: () => "",
+      });
+    }
+    if (!URL.revokeObjectURL) {
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        writable: true,
+        value: () => {},
+      });
+    }
+
+    getMaterialFile.mockResolvedValue({
+      exists: true,
+      blob: new Blob(["lecture"], { type: "application/pdf" }),
+    });
+
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:material-stays-open");
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const previewWindow = {
+      location: { href: "" },
+      close: vi.fn(),
+      closed: false,
+    };
+    vi.spyOn(window, "open").mockReturnValue(previewWindow);
+
+    await openMaterial({ id: "material-1", mimeType: "application/pdf", fileExt: "pdf", displayName: "lecture.pdf" });
+
+    expect(createObjectUrlSpy).toHaveBeenCalled();
+    vi.advanceTimersByTime(61000);
+    expect(revokeObjectUrlSpy).not.toHaveBeenCalled();
+
+    previewWindow.closed = true;
+    vi.advanceTimersByTime(1000);
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:material-stays-open");
+    vi.useRealTimers();
   });
 
   it("falls back to download when preview popup creation is blocked", async () => {

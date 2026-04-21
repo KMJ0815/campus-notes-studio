@@ -1,4 +1,4 @@
-const SW_VERSION = "v4";
+const SW_VERSION = "v5";
 const SHELL_CACHE = `campus-notes-shell-${SW_VERSION}`;
 const RUNTIME_CACHE = `campus-notes-runtime-${SW_VERSION}`;
 const CACHEABLE_IMAGE_EXT = [".png", ".svg", ".webp", ".jpg", ".jpeg", ".gif", ".ico"];
@@ -27,7 +27,7 @@ function coreAssets() {
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) => cache.addAll(coreAssets())).then(() => self.skipWaiting()),
+    caches.open(SHELL_CACHE).then((cache) => cache.addAll(coreAssets())),
   );
 });
 
@@ -88,7 +88,9 @@ async function networkFirst(request, offlineFallbackUrl = null) {
   const runtimeCache = await caches.open(RUNTIME_CACHE);
   try {
     const response = await fetch(request);
-    runtimeCache.put(request, response.clone());
+    if (response.ok) {
+      runtimeCache.put(request, response.clone());
+    }
     return response;
   } catch (error) {
     const cached = await caches.match(request);
@@ -107,7 +109,9 @@ async function staleWhileRevalidate(request) {
   if (cached) {
     void fetch(request)
       .then((response) => {
-        runtimeCache.put(request, response.clone());
+        if (response.ok) {
+          runtimeCache.put(request, response.clone());
+        }
         return response;
       })
       .catch(() => undefined);
@@ -115,6 +119,8 @@ async function staleWhileRevalidate(request) {
   }
 
   const response = await fetch(request);
-  runtimeCache.put(request, response.clone());
+  if (response.ok) {
+    runtimeCache.put(request, response.clone());
+  }
   return response;
 }

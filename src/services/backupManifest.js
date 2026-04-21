@@ -48,15 +48,43 @@ function ensureOptionalBoolean(value, label, defaultValue = true) {
   return value;
 }
 
+function normalizeArtifactMeta(rawArtifact, settings, materials, materialFiles, version) {
+  const fallbackIncludesMaterialFiles =
+    version < 4
+      ? true
+      : materialFiles.length > 0 || (settings.exportIncludeFiles !== false && materials.length > 0);
+
+  if (rawArtifact === undefined || rawArtifact === null) {
+    return {
+      includesMaterialFiles: fallbackIncludesMaterialFiles,
+      hasMissingMaterialFiles: false,
+    };
+  }
+
+  if (typeof rawArtifact !== "object" || Array.isArray(rawArtifact)) {
+    throw createAppError("IMPORT_INVALID", "artifact は object である必要があります。");
+  }
+
+  return {
+    includesMaterialFiles: ensureOptionalBoolean(rawArtifact.includesMaterialFiles, "artifact.includesMaterialFiles", fallbackIncludesMaterialFiles),
+    hasMissingMaterialFiles: ensureOptionalBoolean(rawArtifact.hasMissingMaterialFiles, "artifact.hasMissingMaterialFiles", false),
+  };
+}
+
 export function buildMaterialArchivePath(meta) {
   return `materials/${meta.id}_${safeFileName(meta.displayName || "file")}`;
 }
 
-export function createBackupManifest(snapshot, fileEntries = []) {
+export function createBackupManifest(snapshot, fileEntries = [], artifact = {}) {
+  const materialMeta = ensureSnapshotArray(snapshot.materialMeta);
   return {
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
     settings: snapshot.settings || null,
+    artifact: {
+      includesMaterialFiles: Boolean(artifact.includesMaterialFiles),
+      hasMissingMaterialFiles: Boolean(artifact.hasMissingMaterialFiles),
+    },
     termMeta: ensureSnapshotArray(snapshot.termMeta),
     periods: ensureSnapshotArray(snapshot.periods),
     subjects: ensureSnapshotArray(snapshot.subjects),
@@ -64,7 +92,7 @@ export function createBackupManifest(snapshot, fileEntries = []) {
     notes: ensureSnapshotArray(snapshot.notes),
     attendance: ensureSnapshotArray(snapshot.attendance),
     todos: ensureSnapshotArray(snapshot.todos),
-    materials: ensureSnapshotArray(snapshot.materialMeta),
+    materials: materialMeta,
     materialFiles: fileEntries.map(({ meta, path }) => ({
       id: meta.id,
       path: path || buildMaterialArchivePath(meta),
@@ -102,16 +130,30 @@ export function normalizeImportedManifest(rawManifest) {
     throw createAppError("IMPORT_INVALID", "現在学期キーが見つかりません。");
   }
 
+  const materials = ensureImportArray(rawManifest.materials, "materials");
+  const materialFiles = version >= 4
+    ? ensureImportArray(rawManifest.materialFiles, "materialFiles")
+    : materials.map((meta) => ({
+        id: meta.id,
+        path: buildMaterialArchivePath(meta),
+        displayName: meta.displayName || "",
+        mimeType: meta.mimeType || "",
+        sizeBytes: Number(meta.sizeBytes || 0),
+      }));
+  const normalizedSettings = {
+    ...settings,
+    id: SETTINGS_ID,
+    currentTermKey,
+    termLabel: ensureOptionalString(settings.termLabel, "settings.termLabel").trim() || suggestedTermLabel(currentTermKey),
+    exportIncludeFiles: ensureOptionalBoolean(settings.exportIncludeFiles, "settings.exportIncludeFiles", true),
+  };
+  const artifact = normalizeArtifactMeta(rawManifest.artifact, normalizedSettings, materials, materialFiles, version);
+
   return {
     version,
     exportedAt: rawManifest.exportedAt || "",
-    settings: {
-      ...settings,
-      id: SETTINGS_ID,
-      currentTermKey,
-      termLabel: ensureOptionalString(settings.termLabel, "settings.termLabel").trim() || suggestedTermLabel(currentTermKey),
-      exportIncludeFiles: ensureOptionalBoolean(settings.exportIncludeFiles, "settings.exportIncludeFiles", true),
-    },
+    settings: normalizedSettings,
+    artifact,
     termMeta: ensureImportArray(rawManifest.termMeta, "termMeta"),
     periods: ensureImportArray(rawManifest.periods, "periods"),
     subjects: ensureImportArray(rawManifest.subjects, "subjects"),
@@ -119,15 +161,7 @@ export function normalizeImportedManifest(rawManifest) {
     notes: ensureImportArray(rawManifest.notes, "notes"),
     attendance: ensureImportArray(rawManifest.attendance, "attendance"),
     todos: version >= 4 ? ensureImportArray(rawManifest.todos, "todos") : [],
-    materials: ensureImportArray(rawManifest.materials, "materials"),
-    materialFiles: version >= 4
-      ? ensureImportArray(rawManifest.materialFiles, "materialFiles")
-      : ensureImportArray(rawManifest.materials, "materials").map((meta) => ({
-          id: meta.id,
-          path: buildMaterialArchivePath(meta),
-          displayName: meta.displayName || "",
-          mimeType: meta.mimeType || "",
-          sizeBytes: Number(meta.sizeBytes || 0),
-        })),
+    materials,
+    materialFiles,
   };
 }

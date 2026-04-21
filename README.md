@@ -28,7 +28,8 @@ npm run verify:handoff
 - 正規の配布成果物は `handoff/campus-notes-studio-source.zip` のみです。
 - outer wrapper ZIP や手元で作った追加 ZIP は正規成果物として扱いません。
 - `npm run verify:handoff` は `node_modules`, `dist`, `.git`, `__MACOSX` を含む ZIP を失敗させます。
-- `npm run verify:handoff` は source-only であることに加えて、`src`, `public`, `scripts` と主要ファイルの同梱も確認します。
+- `npm run verify:handoff` は source-only であることに加えて、`src`, `public`, `scripts` と主要ファイルの同梱、および current tree との**内容一致**まで確認します。
+- handoff を作る前に current branch の変更を commit / push し、GitHub 上のコードと handoff の中身がズレない状態にしてください。
 - handoff 前は `npm test`, `npm run build`, `npm run package:source`, `npm run verify:handoff` を順に通してください。
 
 ## 開発
@@ -79,4 +80,4 @@ Pages の設定値:
 
 アプリ本体で `navigator.serviceWorker.register("/sw.js", { scope: "/" })` を呼んでおり、`manifest` も `index.html` に組み込み済みです。
 
-ServiceWorker を更新する際は `public/sw.js` の `SW_VERSION` を `v2` → `v3` のようにインクリメントしてください。activate 時に古い cache が削除され、`usePwaStatus` が更新を検知してユーザにリロードを促します。
+ServiceWorker を更新する際は `public/sw.js` の `SW_VERSION` を `v2` → `v3` のようにインクリメントしてください。新しい worker は install 後すぐには前面化せず waiting に留まり、`usePwaStatus` は waiting worker がある時だけ更新を検知します。ユーザが UI の「更新を適用」を押した時だけ `SKIP_WAITING` を送り、その後の `controllerchange` でリロードして新しいキャッシュへ切り替えます。

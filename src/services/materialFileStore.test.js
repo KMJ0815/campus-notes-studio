@@ -5,7 +5,7 @@ vi.mock("../db/schema", () => ({
 }));
 
 import { getDb } from "../db/schema";
-import { saveMaterialFile } from "./materialFileStore";
+import { clearMaterialFileStorage, getMaterialFile, saveMaterialFile } from "./materialFileStore";
 
 describe("materialFileStore", () => {
   const originalStorage = navigator.storage;
@@ -114,5 +114,46 @@ describe("materialFileStore", () => {
     await expect(
       saveMaterialFile("material-1", new Blob(["lecture"], { type: "application/pdf" })),
     ).rejects.toMatchObject({ code: "MATERIAL_STORAGE_QUOTA" });
+  });
+
+  it("does not fall back to OPFS when IndexedDB is the declared backend", async () => {
+    const db = {
+      get: vi.fn().mockResolvedValue(undefined),
+    };
+    getDb.mockResolvedValue(db);
+
+    const getFile = vi.fn().mockResolvedValue(new Blob(["lecture"], { type: "application/pdf" }));
+    Object.defineProperty(navigator, "storage", {
+      configurable: true,
+      value: {
+        getDirectory: vi.fn().mockResolvedValue({
+          getDirectoryHandle: vi.fn().mockResolvedValue({
+            getFileHandle: vi.fn().mockResolvedValue({
+              getFile,
+            }),
+          }),
+        }),
+      },
+    });
+
+    const result = await getMaterialFile("material-1", { preferredStorage: "indexeddb" });
+
+    expect(result).toEqual({ blob: null, storage: null, exists: false });
+    expect(getFile).not.toHaveBeenCalled();
+  });
+
+  it("throws when OPFS cleanup fails for reasons other than a missing directory", async () => {
+    Object.defineProperty(navigator, "storage", {
+      configurable: true,
+      value: {
+        getDirectory: vi.fn().mockResolvedValue({
+          removeEntry: vi.fn().mockRejectedValue(new Error("locked")),
+        }),
+      },
+    });
+
+    await expect(clearMaterialFileStorage()).rejects.toMatchObject({
+      code: "MATERIAL_STORAGE_CLEANUP_FAILED",
+    });
   });
 });

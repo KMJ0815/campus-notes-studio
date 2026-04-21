@@ -648,13 +648,22 @@ function App() {
   }, [currentTermKey, handleKnownError]);
 
   const handleImportApplied = useCallback((result) => {
+    const missingMaterialWarningCount = result?.warnings?.filter((warning) => warning.code === "MISSING_MATERIAL_FILE").length || 0;
+    const cleanupWarning = result?.warnings?.find((warning) => warning.code === "MATERIAL_STORAGE_CLEANUP_FAILED");
     pushToast({
       tone: "success",
       title: "バックアップを復元しました。",
-      description: result?.warnings?.length
-        ? `資料ファイル ${result.warnings.length} 件は欠損のまま復元されました。`
+      description: missingMaterialWarningCount
+        ? `資料ファイル ${missingMaterialWarningCount} 件は欠損のまま復元されました。`
         : undefined,
     });
+    if (cleanupWarning) {
+      pushToast({
+        tone: "warning",
+        title: "古い資料ファイルの整理に失敗しました。",
+        description: cleanupWarning.message,
+      });
+    }
     retryBootstrap();
   }, [pushToast, retryBootstrap]);
 
@@ -686,10 +695,41 @@ function App() {
       throw error;
     }
 
+    const subjectDraft = { ...draft, termKey: draft.termKey || currentTermKey };
+    const refreshSubjectCollections = () => Promise.all([
+      refreshDashboard(currentTermKey),
+      refreshTimetable(currentTermKey),
+      refreshLibrary(currentTermKey),
+      refreshTodosPage(currentTermKey),
+    ]);
+    const saveWithSharedHandling = async ({ overwriteConflicts }) => {
+      try {
+        return await withBusy(() => saveSubject(subjectDraft, { overwriteConflicts }));
+      } catch (error) {
+        if (!overwriteConflicts && error?.code === "SLOT_CONFLICT") {
+          throw error;
+        }
+        if (error?.code === "INVALID_SLOT_SELECTION" || error?.code === "INVALID_SUBJECT" || error?.code === "INVALID_SUBJECT_COLOR" || error?.code === "ARCHIVE_VIA_ACTION_REQUIRED") {
+          handleKnownError(error, "授業を保存できませんでした。");
+          throw error;
+        }
+        if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
+          await refreshSubjectCollections();
+          handleKnownError(
+            createAppError(error.code, "この授業は別の画面で更新または削除されています。授業一覧を開き直してから編集してください。"),
+            "授業を保存できませんでした。",
+          );
+          throw error;
+        }
+        handleKnownError(error, "授業の保存に失敗しました。");
+        throw error;
+      }
+    };
+
     let savedSubject;
     let overwriteConflictImpacts = [];
     try {
-      savedSubject = await withBusy(() => saveSubject({ ...draft, termKey: draft.termKey || currentTermKey }, { overwriteConflicts: false }));
+      savedSubject = await saveWithSharedHandling({ overwriteConflicts: false });
     } catch (error) {
       if (error?.code === "SLOT_CONFLICT") {
         const confirmed = window.confirm(`次のコマは既に使用中です。上書きしますか？\n${describeSlotConflicts(error.data?.conflicts)}`);
@@ -697,24 +737,9 @@ function App() {
           throw createAppError("CANCELLED", "");
         }
         overwriteConflictImpacts = error.data?.conflicts || [];
-        savedSubject = await withBusy(() => saveSubject({ ...draft, termKey: draft.termKey || currentTermKey }, { overwriteConflicts: true }));
-      } else if (error?.code === "INVALID_SLOT_SELECTION" || error?.code === "INVALID_SUBJECT" || error?.code === "INVALID_SUBJECT_COLOR" || error?.code === "ARCHIVE_VIA_ACTION_REQUIRED") {
-        handleKnownError(error, "授業を保存できませんでした。");
-        throw error;
-      } else if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
-        await Promise.all([
-          refreshDashboard(currentTermKey),
-          refreshTimetable(currentTermKey),
-          refreshLibrary(currentTermKey),
-          refreshTodosPage(currentTermKey),
-        ]);
-        handleKnownError(
-          createAppError(error.code, "この授業は別の画面で更新または削除されています。授業一覧を開き直してから編集してください。"),
-          "授業を保存できませんでした。",
-        );
-        throw error;
-      } else {
-        handleKnownError(error, "授業の保存に失敗しました。");
+        savedSubject = await saveWithSharedHandling({ overwriteConflicts: true });
+      }
+      else {
         throw error;
       }
     }
@@ -1105,10 +1130,19 @@ function App() {
       }
       downloadExportResult(result);
       setExportWarning(null);
+      const exportedMetadataOnly = result.artifact?.includesMaterialFiles === false && result.materialsCount > 0;
       pushToast({
-        tone: result.missingFiles?.length ? "warning" : "success",
-        title: result.missingFiles?.length ? "欠損を除いてエクスポートしました。" : "エクスポートを開始しました。",
-        description: result.missingFiles?.length ? `${result.missingFiles.length} 件の資料が欠損していました。` : "",
+        tone: exportedMetadataOnly ? "info" : result.missingFiles?.length ? "warning" : "success",
+        title: exportedMetadataOnly
+          ? "資料メタ情報のみでエクスポートしました。"
+          : result.missingFiles?.length
+            ? "欠損を除いてエクスポートしました。"
+            : "エクスポートを開始しました。",
+        description: exportedMetadataOnly
+          ? "資料ファイルは含めず、資料名やメモのみを書き出しました。"
+          : result.missingFiles?.length
+            ? `存在する資料ファイルは含め、欠損していた ${result.missingFiles.length} 件だけ除外しました。`
+            : "",
       });
     } catch (error) {
       handleKnownError(error, "エクスポートに失敗しました。");
@@ -1306,7 +1340,7 @@ function App() {
             中止
           </IconButton>
           <IconButton onClick={() => handleExport(true)}>
-            メタ情報だけで続行
+            存在するファイルだけで続行
           </IconButton>
         </div>
       </Modal>

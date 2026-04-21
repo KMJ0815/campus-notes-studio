@@ -199,16 +199,18 @@ vi.mock("./features/subjects/SubjectFormModal", () => ({
         <div>{initialValue?.baseUpdatedAt || ""}</div>
         <button
           type="button"
-          onClick={() => onSave({
-            ...initialValue,
-            name: `${initialValue?.name || "授業"} 改`,
-            termKey: initialValue?.termKey || "2026-spring",
-            teacherName: initialValue?.teacherName || "",
-            room: initialValue?.room || "",
-            color: initialValue?.color || "#4f46e5",
-            memo: initialValue?.memo || "",
-            selectedSlotKeys: initialValue?.selectedSlotKeys || [],
-          })}
+          onClick={() => {
+            void onSave({
+              ...initialValue,
+              name: `${initialValue?.name || "授業"} 改`,
+              termKey: initialValue?.termKey || "2026-spring",
+              teacherName: initialValue?.teacherName || "",
+              room: initialValue?.room || "",
+              color: initialValue?.color || "#4f46e5",
+              memo: initialValue?.memo || "",
+              selectedSlotKeys: initialValue?.selectedSlotKeys || [],
+            }).catch(() => undefined);
+          }}
         >
           save-subject
         </button>
@@ -459,6 +461,76 @@ describe("App subject action contracts", () => {
     });
   });
 
+  it("does not reuse a pending attendance save across different subjects", async () => {
+    const deferred = createDeferred();
+    const subjectOne = buildSubject("subject-1", "統計学");
+    const subjectTwo = buildSubject("subject-2", "解析学");
+
+    saveAttendance.mockImplementation((draft) => {
+      if (draft.subjectId === "subject-1") return deferred.promise;
+      return Promise.resolve(undefined);
+    });
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject: subjectOne,
+        },
+        {
+          slot: { id: "slot-2", weekday: "tue", periodNo: 2, activeSlotKey: "2026-spring:tue:2" },
+          subject: subjectTwo,
+        },
+      ],
+    });
+    loadSubjectHeader.mockImplementation((subjectId) => Promise.resolve({
+      subject: subjectId === "subject-1" ? subjectOne : subjectTwo,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    }));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByText("go-timetable"));
+    fireEvent.click(screen.getByText("select-subject-1"));
+
+    await waitFor(() => {
+      expect(screen.getByText("subject-header-統計学")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByText("save-attendance"));
+    expect(saveAttendance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: "subject-1",
+      }),
+    );
+
+    fireEvent.click(screen.getByText("select-subject-2"));
+    await waitFor(() => {
+      expect(screen.getByText("subject-header-解析学")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByText("save-attendance"));
+
+    await waitFor(() => {
+      expect(saveAttendance).toHaveBeenCalledTimes(2);
+      expect(saveAttendance).toHaveBeenNthCalledWith(2, expect.objectContaining({ subjectId: "subject-2" }));
+    });
+
+    deferred.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
   it("returns a cancelled status for todo deletes that the user aborts", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     loadTimetable.mockResolvedValue({
@@ -563,6 +635,139 @@ describe("App subject action contracts", () => {
     });
 
     expect(loadTimetable.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    confirmSpy.mockRestore();
+  });
+
+  it("keeps the subject modal open and refreshes collections when overwrite-confirm save turns stale", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const subject = buildSubject("subject-1", "統計学");
+    saveSubject
+      .mockRejectedValueOnce(Object.assign(new Error("conflict"), {
+        code: "SLOT_CONFLICT",
+        data: {
+          conflicts: [
+            {
+              weekday: "mon",
+              periodNo: 1,
+              subjectName: "既存授業",
+              willBecomeSlotless: false,
+            },
+          ],
+        },
+      }))
+      .mockRejectedValueOnce(Object.assign(new Error("stale"), { code: "STALE_UPDATE" }));
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject,
+        },
+      ],
+    });
+    loadSubjectHeader.mockResolvedValue({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("subject-header-統計学")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "edit-subject" }));
+    fireEvent.click(screen.getByRole("button", { name: "save-subject" }));
+
+    await waitFor(() => {
+      expect(saveSubject).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("subject-modal")).not.toBeNull();
+      expect(loadDashboardSummary.mock.calls.length).toBeGreaterThan(1);
+      expect(loadTimetable.mock.calls.length).toBeGreaterThan(1);
+      expect(loadLibrarySubjects.mock.calls.length).toBeGreaterThan(1);
+      expect(loadTodosPageData.mock.calls.length).toBeGreaterThan(1);
+      expect(screen.getByText("授業を保存できませんでした。")).not.toBeNull();
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("keeps the subject modal open and shows the invalid-slot error on overwrite-confirm retry failures", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const subject = buildSubject("subject-1", "統計学");
+    saveSubject
+      .mockRejectedValueOnce(Object.assign(new Error("conflict"), {
+        code: "SLOT_CONFLICT",
+        data: {
+          conflicts: [
+            {
+              weekday: "mon",
+              periodNo: 1,
+              subjectName: "既存授業",
+              willBecomeSlotless: false,
+            },
+          ],
+        },
+      }))
+      .mockRejectedValueOnce(Object.assign(new Error("invalid"), {
+        code: "INVALID_SLOT_SELECTION",
+        message: "同じ時間のコマを重複して選択できません。",
+      }));
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject,
+        },
+      ],
+    });
+    loadSubjectHeader.mockResolvedValue({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("subject-header-統計学")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "edit-subject" }));
+    fireEvent.click(screen.getByRole("button", { name: "save-subject" }));
+
+    await waitFor(() => {
+      expect(saveSubject).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("subject-modal")).not.toBeNull();
+      expect(screen.getByText("同じ時間のコマを重複して選択できません。")).not.toBeNull();
+    });
 
     confirmSpy.mockRestore();
   });

@@ -98,4 +98,53 @@ describe("TodosPage", () => {
       }),
     );
   });
+
+  it("swallows toggle failures and releases the pending state", async () => {
+    const onSaveTodo = vi.fn().mockRejectedValue(new Error("save failed"));
+
+    render(
+      <TodosPage
+        openTodos={[openTodo]}
+        doneTodos={[]}
+        onOpenSubject={vi.fn()}
+        onSaveTodo={onSaveTodo}
+        onDeleteTodo={vi.fn().mockResolvedValue({ status: "deleted" })}
+      />,
+    );
+
+    const toggleButton = screen.getByRole("button", { name: "完了" });
+    fireEvent.click(toggleButton);
+
+    expect(toggleButton.disabled).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onSaveTodo).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "完了" }).disabled).toBe(false);
+  });
+
+  it("keeps the editor open and releases pending state when delete fails", async () => {
+    const onDeleteTodo = vi.fn().mockRejectedValue(new Error("delete failed"));
+
+    render(
+      <TodosPage
+        openTodos={[openTodo]}
+        doneTodos={[]}
+        onOpenSubject={vi.fn()}
+        onSaveTodo={vi.fn().mockResolvedValue(undefined)}
+        onDeleteTodo={onDeleteTodo}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "レポート提出" }));
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+
+    expect(screen.getByRole("button", { name: "削除" }).disabled).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onDeleteTodo).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("タイトル")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "削除" }).disabled).toBe(false);
+  });
 });

@@ -31,9 +31,9 @@ async function collectExportSnapshot() {
   };
 }
 
-async function buildZip(snapshot, fileEntries = []) {
+async function buildZip(snapshot, fileEntries = [], artifact = {}) {
   const zip = new JSZip();
-  const manifest = createBackupManifest(snapshot, fileEntries);
+  const manifest = createBackupManifest(snapshot, fileEntries, artifact);
 
   zip.file("data/manifest.json", JSON.stringify(manifest, null, 2));
 
@@ -47,10 +47,15 @@ async function buildZip(snapshot, fileEntries = []) {
 export async function prepareExport({ allowMissingFiles = false, includeFilesOverride } = {}) {
   const snapshot = await collectExportSnapshot();
   const includeFiles = includeFilesOverride ?? snapshot.settings?.exportIncludeFiles !== false;
+  const materialsCount = snapshot.materialMeta.length;
 
   if (!includeFiles) {
-    const blob = await buildZip(snapshot);
-    return { status: "ready", blob, filename: `campus-notes-export-${todayIso()}.zip`, missingFiles: [] };
+    const artifact = {
+      includesMaterialFiles: false,
+      hasMissingMaterialFiles: false,
+    };
+    const blob = await buildZip(snapshot, [], artifact);
+    return { status: "ready", blob, filename: `campus-notes-export-${todayIso()}.zip`, missingFiles: [], artifact, materialsCount };
   }
 
   const missingFiles = [];
@@ -68,8 +73,12 @@ export async function prepareExport({ allowMissingFiles = false, includeFilesOve
     return { status: "missing_files", missingFiles, filename: `campus-notes-export-${todayIso()}.zip` };
   }
 
-  const blob = await buildZip(snapshot, availableFiles);
-  return { status: "ready", blob, filename: `campus-notes-export-${todayIso()}.zip`, missingFiles };
+  const artifact = {
+    includesMaterialFiles: true,
+    hasMissingMaterialFiles: missingFiles.length > 0,
+  };
+  const blob = await buildZip(snapshot, availableFiles, artifact);
+  return { status: "ready", blob, filename: `campus-notes-export-${todayIso()}.zip`, missingFiles, artifact, materialsCount };
 }
 
 export function downloadExportResult(result) {

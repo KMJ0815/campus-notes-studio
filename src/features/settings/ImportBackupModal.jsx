@@ -47,6 +47,15 @@ export function ImportBackupModal({ open, preview, importing, error = "", onClos
             <CountRow label="資料ファイル" value={preview.counts.materialFiles} />
           </div>
 
+          {preview.artifact?.includesMaterialFiles === false && preview.counts.materials > 0 ? (
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-sky-900">
+              <p className="font-semibold">このバックアップは資料メタ情報のみです</p>
+              <p className="mt-2 text-sky-800">
+                資料ファイルは意図的に含めていません。資料名やメモは復元されますが、ファイル本体は復元されません。
+              </p>
+            </div>
+          ) : null}
+
           {preview.warnings.length > 0 ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
               <div className="flex items-start gap-3">

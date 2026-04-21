@@ -68,7 +68,7 @@ export function SettingsModal({
     const nextDraft = {
       currentTermKey: initialTermEditorState?.termKey || initialSettings?.currentTermKey || "",
       termLabel: initialTermEditorState?.label || initialSettings?.termLabel || "",
-      exportIncludeFiles: Boolean(initialSettings?.exportIncludeFiles),
+      exportIncludeFiles: initialSettings?.exportIncludeFiles ?? true,
       periods: normalizePeriods(initialTermEditorState?.periods || []),
       baseUpdatedAt: initialSettings?.updatedAt || null,
     };
@@ -192,7 +192,7 @@ export function SettingsModal({
       });
       if (result.status === "missing_files") {
         const shouldContinue = window.confirm(
-          `資料ファイルが ${result.missingFiles.length} 件見つかりません。資料メタ情報だけでバックアップを続けますか？`,
+          `資料ファイルが ${result.missingFiles.length} 件見つかりません。見つかった資料ファイルだけを含めてバックアップを続けますか？欠損分は ZIP から除外されます。`,
         );
         if (!shouldContinue) return;
         result = await prepareExport({
@@ -204,11 +204,15 @@ export function SettingsModal({
         throw new Error("バックアップを準備できませんでした。");
       }
       downloadExportResult(result);
-      setExportMessage(
-        result.missingFiles?.length
-          ? `バックアップをダウンロードしました。資料ファイル ${result.missingFiles.length} 件は欠損のため含まれていません。`
-          : "バックアップをダウンロードしました。",
-      );
+      if (result.artifact?.includesMaterialFiles === false && result.materialsCount > 0) {
+        setExportMessage("バックアップをダウンロードしました。資料ファイルは含めず、資料メタ情報のみを書き出しました。");
+      } else {
+        setExportMessage(
+          result.missingFiles?.length
+            ? `バックアップをダウンロードしました。存在する資料ファイルは含め、欠損していた ${result.missingFiles.length} 件だけ除外しました。`
+            : "バックアップをダウンロードしました。",
+        );
+      }
     } catch (error) {
       setExportError(errorMessage(error, "バックアップの準備に失敗しました。"));
     } finally {

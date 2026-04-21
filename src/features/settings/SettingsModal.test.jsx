@@ -332,6 +332,27 @@ describe("SettingsModal", () => {
     });
   });
 
+  it("explains metadata-only exports without calling them missing files", async () => {
+    prepareExportMock.mockResolvedValue({
+      status: "ready",
+      blob: new Blob(["zip"]),
+      filename: "backup.zip",
+      missingFiles: [],
+      materialsCount: 2,
+      artifact: {
+        includesMaterialFiles: false,
+        hasMissingMaterialFiles: false,
+      },
+    });
+    renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "バックアップをエクスポート" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("バックアップをダウンロードしました。資料ファイルは含めず、資料メタ情報のみを書き出しました。")).not.toBeNull();
+    });
+  });
+
   it("uses the unsaved exportIncludeFiles toggle for exports from the settings modal", async () => {
     prepareExportMock.mockResolvedValue({
       status: "ready",
@@ -349,6 +370,49 @@ describe("SettingsModal", () => {
         includeFilesOverride: false,
       });
     });
+  });
+
+  it("defaults legacy settings without exportIncludeFiles to checked", () => {
+    renderModal({
+      initialSettings: {
+        currentTermKey: "2026-spring",
+        termLabel: "2026年度 春学期",
+      },
+    });
+
+    expect(screen.getByLabelText("エクスポート時に資料ファイルも ZIP に含める").checked).toBe(true);
+  });
+
+  it("explains missing-file exports as partial file exports instead of metadata-only exports", async () => {
+    prepareExportMock
+      .mockResolvedValueOnce({
+        status: "missing_files",
+        missingFiles: [{ id: "material-1", displayName: "lecture.pdf" }],
+      })
+      .mockResolvedValueOnce({
+        status: "ready",
+        blob: new Blob(["zip"]),
+        filename: "backup.zip",
+        missingFiles: [{ id: "material-1", displayName: "lecture.pdf" }],
+        materialsCount: 3,
+        artifact: {
+          includesMaterialFiles: true,
+          hasMissingMaterialFiles: true,
+        },
+      });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: "バックアップをエクスポート" }));
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalledWith(
+        "資料ファイルが 1 件見つかりません。見つかった資料ファイルだけを含めてバックアップを続けますか？欠損分は ZIP から除外されます。",
+      );
+      expect(screen.getByText("バックアップをダウンロードしました。存在する資料ファイルは含め、欠損していた 1 件だけ除外しました。")).not.toBeNull();
+    });
+
+    confirmSpy.mockRestore();
   });
 
   it("shows an import preview before applying a restore", async () => {
@@ -386,6 +450,47 @@ describe("SettingsModal", () => {
       expect(screen.getByText("バックアップを復元")).not.toBeNull();
       expect(screen.getByText("backup.zip")).not.toBeNull();
       expect(screen.getByText("ToDo")).not.toBeNull();
+    });
+  });
+
+  it("shows metadata-only backups as an informational note instead of a warning", async () => {
+    readImportArchiveMock.mockResolvedValue({
+      preview: {
+        version: 4,
+        exportedAt: "2026-04-20T00:00:00.000Z",
+        currentTermKey: "2026-fall",
+        currentTermLabel: "2026年度 秋学期",
+        artifact: {
+          includesMaterialFiles: false,
+          hasMissingMaterialFiles: false,
+        },
+        counts: {
+          termMeta: 1,
+          periods: 5,
+          subjects: 2,
+          slots: 2,
+          notes: 3,
+          attendance: 1,
+          todos: 4,
+          materials: 1,
+          materialFiles: 0,
+        },
+        warnings: [],
+      },
+      archive: { token: "archive" },
+    });
+    renderModal();
+
+    const fileInput = document.querySelector('input[type="file"]');
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["zip"], "metadata-only.zip", { type: "application/zip" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("このバックアップは資料メタ情報のみです")).not.toBeNull();
+      expect(screen.queryByText("警告があります")).toBeNull();
     });
   });
 
