@@ -49,6 +49,7 @@ import {
   loadSubjectMaterials,
   loadSubjectNotes,
   loadSubjectTodos,
+  loadTodosPageData,
   loadTimetable,
 } from "./services/loaders";
 import { downloadExportResult, prepareExport } from "./services/exportService";
@@ -56,6 +57,7 @@ import { DashboardPage } from "./features/dashboard/DashboardPage";
 import { TimetablePage } from "./features/timetable/TimetablePage";
 import { LibraryPage } from "./features/subjects/LibraryPage";
 import { SubjectDetailPanel } from "./features/subjects/SubjectDetailPanel";
+import { TodosPage } from "./features/todos/TodosPage";
 import { SubjectFormModal } from "./features/subjects/SubjectFormModal";
 import { NoteFormModal } from "./features/notes/NoteFormModal";
 import { MaterialNoteModal } from "./features/materials/MaterialNoteModal";
@@ -73,6 +75,7 @@ const EMPTY_STATS = {
 
 const EMPTY_TIMETABLE = { periods: [], slots: [] };
 const EMPTY_LIBRARY = { periods: [], activeSubjects: [], archivedSubjects: [] };
+const EMPTY_TODOS_PAGE = { openTodos: [], doneTodos: [] };
 const EMPTY_TAB_CACHE = { notes: {}, materials: {}, attendance: {}, todos: {} };
 const EMPTY_SUBJECT_TAB_REQUESTS = {};
 const SUBJECT_TAB_LOADERS = {
@@ -130,6 +133,7 @@ function App() {
   const [dashboardSummary, setDashboardSummary] = useState(EMPTY_STATS);
   const [timetableData, setTimetableData] = useState(EMPTY_TIMETABLE);
   const [libraryData, setLibraryData] = useState(EMPTY_LIBRARY);
+  const [todoPageData, setTodoPageData] = useState(EMPTY_TODOS_PAGE);
 
   const [selectedSubjectId, setSelectedSubjectId] = useState(null);
   const [detailTab, setDetailTab] = useState(DETAIL_TABS.notes);
@@ -158,6 +162,7 @@ function App() {
   const dashboardRequestRef = useRef(0);
   const timetableRequestRef = useRef(0);
   const libraryRequestRef = useRef(0);
+  const todoPageRequestRef = useRef(0);
   const subjectHeaderRequestRef = useRef(0);
   const subjectTabRequestRef = useRef(EMPTY_SUBJECT_TAB_REQUESTS);
 
@@ -271,6 +276,7 @@ function App() {
     dashboardRequestRef.current += 1;
     timetableRequestRef.current += 1;
     libraryRequestRef.current += 1;
+    todoPageRequestRef.current += 1;
     subjectHeaderRequestRef.current += 1;
     subjectTabRequestRef.current = {};
     setReady(false);
@@ -281,6 +287,7 @@ function App() {
     setDashboardSummary(EMPTY_STATS);
     setTimetableData(EMPTY_TIMETABLE);
     setLibraryData(EMPTY_LIBRARY);
+    setTodoPageData(EMPTY_TODOS_PAGE);
     setSubjectSearch("");
     setSubjectModalState({ open: false, initialValue: null });
     setNoteModalState({ open: false, initialValue: null, subjectId: null });
@@ -350,6 +357,21 @@ function App() {
         return null;
       }
       setLibraryData(data);
+      return data;
+    },
+    [],
+  );
+
+  const refreshTodosPage = useCallback(
+    async (termKey) => {
+      if (!termKey) return;
+      const requestId = todoPageRequestRef.current + 1;
+      todoPageRequestRef.current = requestId;
+      const data = await loadTodosPageData(termKey);
+      if (todoPageRequestRef.current !== requestId || currentTermKeyRef.current !== termKey) {
+        return null;
+      }
+      setTodoPageData(data);
       return data;
     },
     [],
@@ -498,6 +520,7 @@ function App() {
           refreshDashboard(settings.currentTermKey),
           refreshTimetable(settings.currentTermKey),
           refreshLibrary(settings.currentTermKey),
+          refreshTodosPage(settings.currentTermKey),
         ]);
         if (!cancelled) {
           setBootstrapError(null);
@@ -514,7 +537,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [refreshDashboard, refreshLibrary, refreshTimetable, settings?.currentTermKey]);
+  }, [refreshDashboard, refreshLibrary, refreshTimetable, refreshTodosPage, settings?.currentTermKey]);
 
   useEffect(() => {
     if (!selectedSubjectId) return;
@@ -643,6 +666,14 @@ function App() {
     setPage(PAGE_DEFS.timetable);
   }, []);
 
+  const handleSelectSubjectTodos = useCallback((subjectId) => {
+    selectedSubjectIdRef.current = subjectId;
+    detailTabRef.current = DETAIL_TABS.todos;
+    setSelectedSubjectId(subjectId);
+    setDetailTab(DETAIL_TABS.todos);
+    setPage(PAGE_DEFS.timetable);
+  }, []);
+
   async function handleSaveSubject(draft) {
     if (!draft.name.trim()) {
       const error = createAppError("INVALID_SUBJECT", "授業名は必須です。");
@@ -675,6 +706,7 @@ function App() {
           refreshDashboard(currentTermKey),
           refreshTimetable(currentTermKey),
           refreshLibrary(currentTermKey),
+          refreshTodosPage(currentTermKey),
         ]);
         handleKnownError(
           createAppError(error.code, "この授業は別の画面で更新または削除されています。授業一覧を開き直してから編集してください。"),
@@ -693,6 +725,7 @@ function App() {
       refreshDashboard(currentTermKey),
       refreshTimetable(currentTermKey),
       refreshLibrary(currentTermKey),
+      refreshTodosPage(currentTermKey),
       refreshSelectedSubjectSlice(savedSubject.id),
     ]);
     pushToast({ tone: "success", title: "授業を保存しました。" });
@@ -710,7 +743,7 @@ function App() {
     if (!window.confirm(`「${subject.name}」をアーカイブします。時間割からは消えますが、ノートや資料は保持されます。`)) return;
     try {
       await withBusy(() => archiveSubject(subject.id));
-      await Promise.all([refreshDashboard(currentTermKey), refreshTimetable(currentTermKey), refreshLibrary(currentTermKey)]);
+      await Promise.all([refreshDashboard(currentTermKey), refreshTimetable(currentTermKey), refreshLibrary(currentTermKey), refreshTodosPage(currentTermKey)]);
       if (selectedSubjectId === subject.id) {
         setSelectedSubjectId(null);
       }
@@ -723,7 +756,7 @@ function App() {
   async function handleRestoreSubject(subject) {
     try {
       const result = await withBusy(() => restoreSubject(subject.id));
-      await Promise.all([refreshDashboard(currentTermKey), refreshTimetable(currentTermKey), refreshLibrary(currentTermKey)]);
+      await Promise.all([refreshDashboard(currentTermKey), refreshTimetable(currentTermKey), refreshLibrary(currentTermKey), refreshTodosPage(currentTermKey)]);
       if (result.restoredSlotCount === 0) {
         const latestHeader = await refreshSubjectHeader(subject.id);
         pushToast({
@@ -965,6 +998,8 @@ function App() {
       await withBusy(() => saveTodo(draft));
       await Promise.all([
         refreshDashboard(currentTermKey),
+        refreshTimetable(currentTermKey),
+        refreshTodosPage(currentTermKey),
         refreshSelectedSubjectSlice(draft.subjectId, { todos: true }),
       ]);
       pushToast({ tone: "success", title: "ToDo を保存しました。" });
@@ -972,6 +1007,8 @@ function App() {
       if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
         await Promise.all([
           refreshDashboard(currentTermKey),
+          refreshTimetable(currentTermKey),
+          refreshTodosPage(currentTermKey),
           refreshSelectedSubjectSlice(draft.subjectId, { todos: true }),
         ]);
         handleKnownError(
@@ -994,6 +1031,8 @@ function App() {
       await withBusy(() => deleteTodo(todo.id));
       await Promise.all([
         refreshDashboard(currentTermKey),
+        refreshTimetable(currentTermKey),
+        refreshTodosPage(currentTermKey),
         refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
       ]);
       pushToast({ tone: "success", title: "ToDo を削除しました。" });
@@ -1002,6 +1041,8 @@ function App() {
       if (error?.code === "STALE_DRAFT") {
         await Promise.all([
           refreshDashboard(currentTermKey),
+          refreshTimetable(currentTermKey),
+          refreshTodosPage(currentTermKey),
           refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
         ]);
         handleKnownError(error, "ToDo は既に削除されています。");
@@ -1031,6 +1072,7 @@ function App() {
         refreshDashboard(nextSettings.currentTermKey),
         refreshTimetable(nextSettings.currentTermKey),
         refreshLibrary(nextSettings.currentTermKey),
+        refreshTodosPage(nextSettings.currentTermKey),
       ]);
       if (selectedSubjectId && draft.currentTermKey.trim() === currentTermKey) {
         await refreshSelectedSubjectSlice(selectedSubjectId);
@@ -1044,6 +1086,7 @@ function App() {
           refreshDashboard(nextSettings.currentTermKey),
           refreshTimetable(nextSettings.currentTermKey),
           refreshLibrary(nextSettings.currentTermKey),
+          refreshTodosPage(nextSettings.currentTermKey),
         ]);
         handleKnownError(error, "設定は別の画面で更新されています。");
         throw error;
@@ -1190,6 +1233,16 @@ function App() {
             onArchiveSubject={handleArchiveSubject}
             onRestoreSubject={handleRestoreSubject}
             onCreateSubject={() => openCreateSubject()}
+          />
+        ) : null}
+
+        {page === PAGE_DEFS.todos ? (
+          <TodosPage
+            openTodos={todoPageData.openTodos}
+            doneTodos={todoPageData.doneTodos}
+            onOpenSubject={handleSelectSubjectTodos}
+            onSaveTodo={handleSaveTodo}
+            onDeleteTodo={handleDeleteTodo}
           />
         ) : null}
       </AppShell>

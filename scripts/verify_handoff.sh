@@ -36,6 +36,8 @@ require_file "index.html"
 require_file "public/sw.js"
 require_file "public/manifest.webmanifest"
 require_file "src/App.jsx"
+require_file "src/features/todos/TodosPage.jsx"
+require_file "src/features/todos/TodosPage.test.jsx"
 require_file "src/services/importService.js"
 require_file "scripts/create_handoff.sh"
 require_file "scripts/verify_handoff.sh"
@@ -43,4 +45,35 @@ require_prefix "src"
 require_prefix "public"
 require_prefix "scripts"
 
-echo "handoff ZIP は source-only で、必須ファイルも揃っています。"
+EXPECTED_LIST=$(mktemp)
+ACTUAL_LIST=$(mktemp)
+cleanup() {
+  rm -f "$EXPECTED_LIST" "$ACTUAL_LIST"
+}
+trap cleanup EXIT INT TERM
+
+{
+  printf '%s\n' \
+    ".gitignore" \
+    "README.md" \
+    "index.html" \
+    "package-lock.json" \
+    "package.json" \
+    "postcss.config.js" \
+    "scripts/create_handoff.sh" \
+    "scripts/verify_handoff.sh" \
+    "tailwind.config.js" \
+    "vite.config.js" \
+    "vitest.config.js"
+  find public src -type f | sort
+} | sort > "$EXPECTED_LIST"
+
+printf '%s\n' "$ZIP_ENTRIES" | grep -Ev '/$' | sort > "$ACTUAL_LIST"
+
+if ! cmp -s "$EXPECTED_LIST" "$ACTUAL_LIST"; then
+  echo "handoff ZIP の内容が current tree と一致していません。" >&2
+  diff -u "$EXPECTED_LIST" "$ACTUAL_LIST" || true
+  exit 1
+fi
+
+echo "handoff ZIP は source-only で、必須ファイルが揃っており current tree と一致しています。"

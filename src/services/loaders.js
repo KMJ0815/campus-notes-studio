@@ -15,7 +15,7 @@ import {
   getSubjectsByTerm,
 } from "../db/repositories/subjects";
 import { getDb } from "../db/schema";
-import { sortSlots } from "../lib/utils";
+import { sortSlots, sortTodos } from "../lib/utils";
 
 function firstSortableSlot(subject) {
   return sortSlots(subject.slots || []).find((slot) => slot.activeSlotKey) || null;
@@ -68,6 +68,35 @@ function mapSubjects(subjects) {
   return new Map(subjects.map((subject) => [subject.id, subject]));
 }
 
+async function loadTodoRecordsByStatus(index, termKey, status, activeSubjectIds, subjectMap) {
+  const todos = [];
+  let cursor = await index.openCursor(IDBKeyRange.only([termKey, status]));
+  while (cursor) {
+    const todo = cursor.value;
+    if (activeSubjectIds.has(todo.subjectId)) {
+      todos.push({
+        ...todo,
+        subject: subjectMap.get(todo.subjectId) || null,
+      });
+    }
+    cursor = await cursor.continue();
+  }
+  return sortTodos(todos);
+}
+
+async function loadOpenTodoCountsBySubject(index, termKey, activeSubjectIds) {
+  const counts = new Map();
+  let cursor = await index.openCursor(IDBKeyRange.only([termKey, "open"]));
+  while (cursor) {
+    const todo = cursor.value;
+    if (activeSubjectIds.has(todo.subjectId)) {
+      counts.set(todo.subjectId, (counts.get(todo.subjectId) || 0) + 1);
+    }
+    cursor = await cursor.continue();
+  }
+  return counts;
+}
+
 export async function loadDashboardSummary(termKey) {
   const [subjects, periods, slots] = await Promise.all([
     getSubjectsByTerm(termKey),
@@ -116,11 +145,19 @@ export async function loadTimetable(termKey) {
     getSlotsByTerm(termKey),
   ]);
   const subjectMap = mapSubjects(subjects);
+  const activeSubjectIds = new Set(subjects.filter((subject) => !subject.isArchived).map((subject) => subject.id));
+  const db = await getDb();
+  const openTodoCounts = await loadOpenTodoCountsBySubject(
+    db.transaction("todo_items").store.index("byTermStatus"),
+    termKey,
+    activeSubjectIds,
+  );
   return {
     periods,
     slots: slots.filter((slot) => slot.activeSlotKey).map((slot) => ({
       slot,
       subject: subjectMap.get(slot.subjectId) || null,
+      openTodoCount: openTodoCounts.get(slot.subjectId) || 0,
     })),
   };
 }
@@ -177,6 +214,20 @@ export async function loadSubjectHeader(subjectId) {
     openTodosCount,
     doneTodosCount,
   };
+}
+
+export async function loadTodosPageData(termKey) {
+  const subjects = await getSubjectsByTerm(termKey);
+  const activeSubjects = subjects.filter((subject) => !subject.isArchived);
+  const activeSubjectIds = new Set(activeSubjects.map((subject) => subject.id));
+  const subjectMap = mapSubjects(subjects);
+  const db = await getDb();
+  const [openTodos, doneTodos] = await Promise.all([
+    loadTodoRecordsByStatus(db.transaction("todo_items").store.index("byTermStatus"), termKey, "open", activeSubjectIds, subjectMap),
+    loadTodoRecordsByStatus(db.transaction("todo_items").store.index("byTermStatus"), termKey, "done", activeSubjectIds, subjectMap),
+  ]);
+
+  return { openTodos, doneTodos };
 }
 
 export { loadSubjectNotes, loadSubjectMaterials, loadSubjectAttendance, loadSubjectTodos };

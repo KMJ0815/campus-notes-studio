@@ -45,6 +45,7 @@ export const PAGE_DEFS = {
   dashboard: "dashboard",
   timetable: "timetable",
   library: "library",
+  todos: "todos",
 };
 
 export const DETAIL_TABS = {

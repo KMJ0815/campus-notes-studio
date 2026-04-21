@@ -32,6 +32,7 @@ describe("TimetablePage", () => {
               color: "#4f46e5",
               isArchived: false,
             },
+            openTodoCount: 2,
           },
         ]}
         onSelectSubject={vi.fn()}
@@ -45,6 +46,7 @@ describe("TimetablePage", () => {
     expect(screen.getByText("統計学")).not.toBeNull();
     expect(screen.getByText("301")).not.toBeNull();
     expect(screen.queryByText("山田 太郎")).toBeNull();
+    expect(screen.getByLabelText("統計学、未完了 ToDo 2 件")).not.toBeNull();
   });
 
   it("keeps horizontal overflow inside the timetable card on narrow layouts", () => {

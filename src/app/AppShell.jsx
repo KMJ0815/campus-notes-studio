@@ -1,16 +1,18 @@
-import { BookOpen, CalendarDays, Download, GraduationCap, Home, Plus, Settings } from "lucide-react";
+import { BookOpen, CalendarDays, Download, GraduationCap, Home, ListTodo, Plus, Settings } from "lucide-react";
 import { PAGE_DEFS } from "../lib/constants";
 import { AppShellButton, Chip, IconButton, Panel } from "../components/ui";
 
 function pageTitle(page) {
   if (page === PAGE_DEFS.timetable) return "時間割";
   if (page === PAGE_DEFS.library) return "授業一覧";
+  if (page === PAGE_DEFS.todos) return "ToDo";
   return "ダッシュボード";
 }
 
 function pageLead(page) {
   if (page === PAGE_DEFS.timetable) return "曜日と時限ごとの授業予定を整理";
   if (page === PAGE_DEFS.library) return "授業ごとの資料と記録を横断して確認";
+  if (page === PAGE_DEFS.todos) return "今学期の未完了タスクと完了履歴を一覧";
   return "今学期の動きと最近の更新を確認";
 }
 
@@ -55,14 +57,22 @@ export function AppShell({
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2">
-                <div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
+                <button
+                  type="button"
+                  onClick={() => onPageChange(PAGE_DEFS.timetable)}
+                  className="rounded-2xl bg-white px-3 py-3 text-left ring-1 ring-slate-200 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                >
                   <p className="text-[11px] text-slate-500">今日の授業</p>
                   <p className="mt-1 text-lg font-semibold">{todayClassesCount}件</p>
-                </div>
-                <div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onPageChange(PAGE_DEFS.todos)}
+                  className="rounded-2xl bg-white px-3 py-3 text-left ring-1 ring-slate-200 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                >
                   <p className="text-[11px] text-slate-500">未完了ToDo</p>
                   <p className="mt-1 text-lg font-semibold">{openTodosCount}件</p>
-                </div>
+                </button>
               </div>
             </Panel>
           </section>
@@ -71,6 +81,7 @@ export function AppShell({
             <AppShellButton active={page === PAGE_DEFS.dashboard} icon={Home} label="ダッシュボード" onClick={() => onPageChange(PAGE_DEFS.dashboard)} />
             <AppShellButton active={page === PAGE_DEFS.timetable} icon={CalendarDays} label="時間割" onClick={() => onPageChange(PAGE_DEFS.timetable)} />
             <AppShellButton active={page === PAGE_DEFS.library} icon={BookOpen} label="授業一覧" onClick={() => onPageChange(PAGE_DEFS.library)} />
+            <AppShellButton active={page === PAGE_DEFS.todos} icon={ListTodo} label="ToDo" onClick={() => onPageChange(PAGE_DEFS.todos)} />
           </div>
 
           <Panel>

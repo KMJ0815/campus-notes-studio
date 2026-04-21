@@ -12,7 +12,7 @@ import { ensureSeedData, deleteAppDb, getDb, resetDbConnection } from "../db/sch
 import { archiveSubject, saveSubject } from "../db/repositories/subjects";
 import { saveTodo } from "../db/repositories/todos";
 import { loadSubjectNotes } from "../db/repositories/notes";
-import { loadDashboardSummary, loadSubjectHeader } from "./loaders";
+import { loadDashboardSummary, loadSubjectHeader, loadTodosPageData } from "./loaders";
 
 describe("loaders", () => {
   beforeEach(async () => {
@@ -200,5 +200,61 @@ describe("loaders", () => {
     const header = await loadSubjectHeader(subject.id);
     expect(header.openTodosCount).toBe(1);
     expect(header.doneTodosCount).toBe(1);
+  });
+
+  it("loads only active-subject todos for the standalone todos page", async () => {
+    const [activeSubject, archivedSubject] = await Promise.all([
+      saveSubject({
+        termKey: "2026-spring",
+        name: "統計学",
+        teacherName: "",
+        room: "",
+        color: "#0f172a",
+        memo: "",
+        isArchived: false,
+        selectedSlotKeys: ["tue-1"],
+      }),
+      saveSubject({
+        termKey: "2026-spring",
+        name: "国際関係論",
+        teacherName: "",
+        room: "",
+        color: "#4f46e5",
+        memo: "",
+        isArchived: false,
+        selectedSlotKeys: ["wed-1"],
+      }),
+    ]);
+    await archiveSubject(archivedSubject.id);
+
+    await Promise.all([
+      saveTodo({
+        subjectId: activeSubject.id,
+        title: "レポート提出",
+        memo: "",
+        dueDate: "2026-04-22",
+        status: "open",
+      }),
+      saveTodo({
+        subjectId: activeSubject.id,
+        title: "参考文献を読む",
+        memo: "",
+        dueDate: "",
+        status: "done",
+      }),
+    ]);
+    await saveTodo({
+      subjectId: archivedSubject.id,
+      title: "アーカイブ済みの課題",
+      memo: "",
+      dueDate: "2026-04-23",
+      status: "open",
+    });
+
+    const todoPageData = await loadTodosPageData("2026-spring");
+
+    expect(todoPageData.openTodos.map((todo) => todo.title)).toEqual(["レポート提出"]);
+    expect(todoPageData.doneTodos.map((todo) => todo.title)).toEqual(["参考文献を読む"]);
+    expect(todoPageData.openTodos[0].subject?.name).toBe("統計学");
   });
 });

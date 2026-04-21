@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "./AppShell";
 import { PAGE_DEFS } from "../lib/constants";
@@ -84,5 +84,17 @@ describe("AppShell", () => {
     );
 
     expect(screen.getByRole("button", { name: "更新を適用" })).not.toBeNull();
+  });
+
+  it("routes the status-card metrics and navigation to timetable and todos", () => {
+    renderAppShell();
+
+    fireEvent.click(screen.getByRole("button", { name: /今日の授業/ }));
+    fireEvent.click(screen.getByRole("button", { name: /未完了ToDo/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ToDo" }));
+
+    expect(baseProps.onPageChange).toHaveBeenNthCalledWith(1, PAGE_DEFS.timetable);
+    expect(baseProps.onPageChange).toHaveBeenNthCalledWith(2, PAGE_DEFS.todos);
+    expect(baseProps.onPageChange).toHaveBeenNthCalledWith(3, PAGE_DEFS.todos);
   });
 });

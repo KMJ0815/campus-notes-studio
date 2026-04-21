@@ -50,6 +50,12 @@ function assertArrayField(value, label) {
   }
 }
 
+function assertPositiveIntegerField(value, label) {
+  if (!Number.isInteger(value) || value < 1) {
+    throw createAppError("IMPORT_INVALID", `${label} は 1 以上の整数である必要があります。`);
+  }
+}
+
 function ensureUniqueIds(items, label) {
   const seen = new Set();
   for (const item of items) {
@@ -142,6 +148,7 @@ function validateManifestShape(manifest) {
 
   manifest.periods.forEach((period, index) => {
     assertStringField(period.termKey, `periods[${index}].termKey`, { allowEmpty: false });
+    assertPositiveIntegerField(period.periodNo, `periods[${index}].periodNo`);
     assertStringField(period.label, `periods[${index}].label`, { allowEmpty: false });
     assertStringField(period.startTime, `periods[${index}].startTime`, { allowEmpty: false });
     assertStringField(period.endTime, `periods[${index}].endTime`, { allowEmpty: false });
@@ -163,6 +170,7 @@ function validateManifestShape(manifest) {
     assertStringField(slot.termKey, `slots[${index}].termKey`, { allowEmpty: false });
     assertStringField(slot.subjectId, `slots[${index}].subjectId`, { allowEmpty: false });
     assertStringField(slot.weekday, `slots[${index}].weekday`, { allowEmpty: false });
+    assertPositiveIntegerField(slot.periodNo, `slots[${index}].periodNo`);
     assertOptionalStringField(slot.activeSlotKey, `slots[${index}].activeSlotKey`);
     assertBooleanField(slot.isArchived, `slots[${index}].isArchived`);
   });
@@ -184,7 +192,7 @@ function validateManifestShape(manifest) {
 
   manifest.todos.forEach((todo, index) => {
     assertStringField(todo.subjectId, `todos[${index}].subjectId`, { allowEmpty: false });
-    assertStringField(todo.title, `todos[${index}].title`);
+    assertStringField(todo.title, `todos[${index}].title`, { allowEmpty: false });
     assertOptionalStringField(todo.memo, `todos[${index}].memo`);
     assertOptionalStringField(todo.dueDate, `todos[${index}].dueDate`);
     assertStringField(todo.status, `todos[${index}].status`, { allowEmpty: false });

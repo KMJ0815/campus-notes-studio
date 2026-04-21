@@ -45,20 +45,25 @@ export function TimetablePage({ periods, slotItems, onSelectSubject, onCreateSub
               const key = slotKey(day.key, period.periodNo);
               const item = slotMap.get(key);
               if (item) {
+                const todoLabel = item.openTodoCount > 0 ? `、未完了 ToDo ${item.openTodoCount} 件` : "";
                 return (
                   <button
                     type="button"
                     key={key}
                     onClick={() => onSelectSubject(item.subject.id)}
                     className={`${TIMETABLE_FILLED_CELL_CLASS} ${TIMETABLE_CELL_MIN_HEIGHT_CLASS}`}
-                    title={item.subject.name}
+                    title={`${item.subject.name}${todoLabel}`}
+                    aria-label={`${item.subject.name}${todoLabel}`}
                   >
-                    <div className="flex items-start gap-2.5">
-                      <div className="mt-0.5 h-8 w-2 shrink-0 rounded-full sm:h-9" style={{ backgroundColor: subjectColor(item.subject) }} />
-                      <div className="min-w-0 flex-1">
-                        <p className="line-clamp-2 text-xs font-semibold leading-5 text-slate-900 sm:text-sm">{item.subject.name}</p>
-                        <p className="mt-1 truncate text-xs text-slate-500">{item.subject.room || "教室未設定"}</p>
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                        <div className="mt-0.5 h-8 w-2 shrink-0 rounded-full sm:h-9" style={{ backgroundColor: subjectColor(item.subject) }} />
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 text-xs font-semibold leading-5 text-slate-900 sm:text-sm">{item.subject.name}</p>
+                          <p className="mt-1 truncate text-xs text-slate-500">{item.subject.room || "教室未設定"}</p>
+                        </div>
                       </div>
+                      {item.openTodoCount > 0 ? <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500 ring-2 ring-amber-100" aria-hidden="true" /> : null}
                     </div>
                   </button>
                 );

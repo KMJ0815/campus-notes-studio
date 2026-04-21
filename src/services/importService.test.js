@@ -570,4 +570,40 @@ describe("importService", () => {
       message: expect.stringContaining("subjects[0].restoreSlotIds は配列"),
     });
   });
+
+  it("rejects non-integer slot period numbers during preview", async () => {
+    const base = buildBaseManifest();
+    const manifest = buildBaseManifest({
+      slots: [
+        {
+          ...base.slots[0],
+          periodNo: "1",
+        },
+      ],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+      message: expect.stringContaining("slots[0].periodNo は 1 以上の整数"),
+    });
+  });
+
+  it("rejects blank todo titles during preview", async () => {
+    const base = buildBaseManifest();
+    const manifest = buildBaseManifest({
+      todos: [
+        {
+          ...base.todos[0],
+          title: "   ",
+        },
+      ],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    await expect(readImportArchive(archiveBlob)).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+      message: expect.stringContaining("todos[0].title が空"),
+    });
+  });
 });
