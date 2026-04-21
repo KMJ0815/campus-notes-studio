@@ -12,6 +12,7 @@ import {
   buildPeriodId,
   defaultPeriodsForTerm,
   normalizeDateOnlyInputValue,
+  normalizeNoteTitle,
   normalizeTimeInputValue,
   nowIso,
   suggestedTermLabel,
@@ -179,6 +180,7 @@ async function migrateNotes(transaction) {
   for (const item of items) {
     await notesStore.put({
       ...item,
+      title: normalizeNoteTitle(item.title),
       lectureDate: normalizeDateOnlyInputValue(item.lectureDate),
       updatedAt: item.updatedAt || nowIso(),
     });
@@ -370,6 +372,9 @@ export async function getDb() {
         }
         if (oldVersion < 9) {
           // todo_items was introduced in v9; no record backfill is required.
+        }
+        if (oldVersion < 10) {
+          await migrateNotes(transaction);
         }
 
         ensureIndexes(db, transaction);

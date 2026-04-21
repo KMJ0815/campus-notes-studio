@@ -1,4 +1,4 @@
-import { weekdayKeyForToday } from "../lib/utils";
+import { buildNotePreview, weekdayKeyForToday } from "../lib/utils";
 import { countAttendanceBySubject, loadSubjectAttendance } from "../db/repositories/attendance";
 import { countMaterialsBySubject, loadSubjectMaterials } from "../db/repositories/materials";
 import { countNotesBySubject, loadSubjectNotes } from "../db/repositories/notes";
@@ -56,6 +56,7 @@ async function loadRecentActiveNotes(index, termKey, activeSubjectIds, subjectMa
     if (activeSubjectIds.has(note.subjectId)) {
       recentNotes.push({
         ...note,
+        previewText: buildNotePreview(note.bodyText),
         subject: subjectMap.get(note.subjectId) || null,
       });
     }

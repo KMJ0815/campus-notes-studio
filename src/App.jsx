@@ -16,6 +16,7 @@ import {
   isValidDateOnly,
   isValidSubjectColor,
   normalizeDateOnlyInputValue,
+  normalizeNoteTitle,
   normalizeSubjectColorInput,
   slotKey,
   uid,
@@ -851,7 +852,7 @@ function App() {
   }
 
   async function handleDeleteNote(note) {
-    const noteTitle = note.title?.trim() || "無題ノート";
+    const noteTitle = normalizeNoteTitle(note.title);
     if (!window.confirm(`「${noteTitle}」を削除しますか？`)) return;
     try {
       await withBusy(() => deleteNote(note.id));

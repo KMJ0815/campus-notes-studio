@@ -191,6 +191,27 @@ export function sortByUpdated(items = []) {
   );
 }
 
+function collapseInlineWhitespace(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(value, maxLength) {
+  const chars = Array.from(value);
+  if (chars.length <= maxLength) return value;
+  return `${chars.slice(0, maxLength).join("").trimEnd()}…`;
+}
+
+export function normalizeNoteTitle(title) {
+  return collapseInlineWhitespace(title) || "無題ノート";
+}
+
+export function buildNotePreview(bodyText, { fallback = "本文なし", maxLength = 140 } = {}) {
+  const normalized = collapseInlineWhitespace(bodyText);
+  if (!normalized) return fallback;
+  return truncateText(normalized, maxLength);
+}
+
 export function sortSlots(slots = []) {
   return [...slots].sort((a, b) => {
     const dayA = DAY_DEFS.findIndex((day) => day.key === a.weekday);

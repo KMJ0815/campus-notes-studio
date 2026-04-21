@@ -8,6 +8,7 @@ import {
   fileExtension,
   isValidDateOnly,
   normalizeDateOnlyInputValue,
+  normalizeNoteTitle,
   normalizeSubjectColorInput,
   nowIso,
   suggestedTermLabel,
@@ -486,6 +487,16 @@ function buildPreview(data, validation) {
   };
 }
 
+function finalizeNormalizedImportData(data) {
+  return {
+    ...data,
+    notes: data.notes.map((note) => ({
+      ...note,
+      title: normalizeNoteTitle(note.title),
+    })),
+  };
+}
+
 function normalizeImportData(manifest) {
   validateManifestShape(manifest);
   const timestamp = nowIso();
@@ -614,13 +625,14 @@ export async function readImportArchive(file) {
   const manifest = normalizeImportedManifest(rawManifest);
   const normalized = normalizeImportData(manifest);
   const validation = validateManifest(normalized, zip);
+  const finalized = finalizeNormalizedImportData(normalized);
 
   return {
-    preview: buildPreview(normalized, validation),
+    preview: buildPreview(finalized, validation),
     archive: {
       zip,
       manifest,
-      normalized,
+      normalized: finalized,
       validation,
     },
   };
@@ -652,8 +664,9 @@ export async function applyImportArchive(archive) {
     throw createAppError("IMPORT_INVALID", "インポート対象が読み込まれていません。");
   }
 
-  const normalized = archive.normalized || normalizeImportData(archive.manifest);
-  const validation = archive.validation || validateManifest(normalized, archive.zip);
+  const baseNormalized = archive.manifest ? normalizeImportData(archive.manifest) : archive.normalized;
+  const validation = archive.validation || validateManifest(baseNormalized, archive.zip);
+  const normalized = archive.normalized || finalizeNormalizedImportData(baseNormalized);
   const materialFiles = [];
 
   for (const material of normalized.materialMeta) {

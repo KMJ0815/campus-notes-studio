@@ -78,6 +78,196 @@ describe("SubjectDetailPanel", () => {
     expect(screen.getByRole("button", { name: "ノートを削除" })).not.toBeNull();
   });
 
+  it("hardens the subject header and note cards against long text and blank titles", () => {
+    const longSubjectName = "応用データサイエンス特論".repeat(6);
+    const longMemo = "https://example.com/" + "memo/".repeat(20);
+    const { container } = render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: longSubjectName,
+            teacherName: "山田".repeat(8),
+            room: "研究棟".repeat(8),
+            color: "#4f46e5",
+            isArchived: false,
+            memo: longMemo,
+          },
+          slots: [],
+          periods: [],
+          notesCount: 1,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.notes}
+        tabLoading={false}
+        notes={[
+          {
+            id: "note-1",
+            subjectId: "subject-1",
+            title: "   ",
+            bodyText: longMemo,
+            lectureDate: "2026-04-18",
+            updatedAt: "2026-04-18T09:00:00.000Z",
+          },
+        ]}
+        materials={[]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    const headerTitle = screen.getByText(longSubjectName);
+    const noteTitle = screen.getByText("無題ノート");
+    const noteBody = screen.getAllByText(longMemo)[1];
+
+    expect(container.querySelector(".min-w-0.flex-1")).not.toBeNull();
+    expect(headerTitle.className).toContain("break-words");
+    expect(noteTitle.className).toContain("break-words");
+    expect(noteBody.className).toContain("break-words");
+  });
+
+  it("hardens material cards against long filenames and memos", () => {
+    const longFileName = `lecture-${"very-long-segment-".repeat(12)}pdf`;
+    const longMemo = "資料メモ".repeat(20);
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 1,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.materials}
+        tabLoading={false}
+        notes={[]}
+        materials={[
+          {
+            id: "material-1",
+            displayName: longFileName,
+            sizeBytes: 1024,
+            mimeType: "application/pdf",
+            fileExt: "pdf",
+            note: longMemo,
+            createdAt: "2026-04-18T09:00:00.000Z",
+          },
+        ]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(longFileName).className).toContain("break-words");
+    expect(screen.getByText(longMemo).className).toContain("break-words");
+  });
+
+  it("hardens attendance cards against long memo text", () => {
+    const longMemo = "https://attendance.example.com/" + "memo/".repeat(18);
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 1,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.attendance}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[
+          {
+            id: "attendance-1",
+            lectureDate: "2026-04-18",
+            status: "present",
+            slotLabel: "月 1限",
+            memo: longMemo,
+          },
+        ]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(longMemo).className).toContain("break-words");
+  });
+
   it("defaults attendance to the next active lecture date", () => {
     render(
       <SubjectDetailPanel

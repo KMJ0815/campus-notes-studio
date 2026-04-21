@@ -3,7 +3,7 @@ import { openDB } from "idb";
 import { DB_NAME, SETTINGS_ID } from "../lib/constants";
 import { deleteAppDb, ensureSeedData, getDb, resetDbConnection } from "./schema";
 
-async function createV1Database() {
+async function createV1Database({ notes } = {}) {
   const db = await openDB(DB_NAME, 1, {
     upgrade(upgradeDb) {
       upgradeDb.createObjectStore("settings", { keyPath: "id" });
@@ -26,15 +26,20 @@ async function createV1Database() {
     exportIncludeFiles: true,
     updatedAt: "2026-04-17T12:00:00.000Z",
   });
-  await db.put("notes", {
-    id: "note-1",
-    subjectId: "subject-1",
-    title: "メモ",
-    bodyText: "本文",
-    lectureDate: "2026-04-18T00:00:00.000Z",
-    createdAt: "2026-04-17T12:00:00.000Z",
-    updatedAt: "2026-04-17T12:00:00.000Z",
-  });
+  const noteRecords = notes || [
+    {
+      id: "note-1",
+      subjectId: "subject-1",
+      title: "メモ",
+      bodyText: "本文",
+      lectureDate: "2026-04-18T00:00:00.000Z",
+      createdAt: "2026-04-17T12:00:00.000Z",
+      updatedAt: "2026-04-17T12:00:00.000Z",
+    },
+  ];
+  for (const note of noteRecords) {
+    await db.put("notes", note);
+  }
   await db.put("attendance", {
     id: "attendance-1",
     subjectId: "subject-1",
@@ -136,5 +141,25 @@ describe("schema migration", () => {
 
     const settings = await db.get("settings", SETTINGS_ID);
     expect(settings.exportIncludeFiles).toBe(true);
+  });
+
+  it("backfills blank legacy note titles during migration", async () => {
+    await createV1Database({
+      notes: [
+        {
+          id: "note-blank-title",
+          subjectId: "subject-1",
+          title: "   ",
+          bodyText: "本文",
+          lectureDate: "2026-04-18T00:00:00.000Z",
+          createdAt: "2026-04-17T12:00:00.000Z",
+          updatedAt: "2026-04-17T12:00:00.000Z",
+        },
+      ],
+    });
+    resetDbConnection();
+
+    const db = await getDb();
+    expect((await db.get("notes", "note-blank-title")).title).toBe("無題ノート");
   });
 });

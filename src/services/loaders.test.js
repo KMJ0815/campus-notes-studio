@@ -120,6 +120,40 @@ describe("loaders", () => {
     expect(getAllSpy).not.toHaveBeenCalledWith("attendance");
   });
 
+  it("builds normalized dashboard preview text for recent notes", async () => {
+    const subject = await saveSubject({
+      termKey: "2026-spring",
+      name: "統計学",
+      teacherName: "",
+      room: "",
+      color: "#0f172a",
+      memo: "",
+      isArchived: false,
+      selectedSlotKeys: ["tue-1"],
+    });
+
+    const rawBodyText = `https://example.com/${"very-long-segment/".repeat(20)}\n\ncode    block`;
+    const db = await getDb();
+    await db.put("notes", {
+      id: "note-preview",
+      subjectId: subject.id,
+      termKey: "2026-spring",
+      title: "第3回",
+      bodyText: rawBodyText,
+      lectureDate: "2026-04-22",
+      createdAt: "2026-04-22T09:00:00.000Z",
+      updatedAt: "2026-04-22T09:00:00.000Z",
+    });
+
+    const summary = await loadDashboardSummary("2026-spring");
+
+    expect(summary.recentNotes[0].bodyText).toBe(rawBodyText);
+    expect(summary.recentNotes[0].previewText).not.toContain("\n");
+    expect(summary.recentNotes[0].previewText).not.toContain("    ");
+    expect(summary.recentNotes[0].previewText.endsWith("…")).toBe(true);
+    expect(summary.recentNotes[0].previewText.length).toBeLessThan(rawBodyText.length);
+  });
+
   it("excludes archived-subject todos from the dashboard open todo count", async () => {
     const [activeSubject, archivedSubject] = await Promise.all([
       saveSubject({

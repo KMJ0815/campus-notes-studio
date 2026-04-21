@@ -1,4 +1,4 @@
-import { isValidDateOnly, normalizeDateOnlyInputValue, nowIso, sortByUpdated, uid } from "../../lib/utils";
+import { isValidDateOnly, normalizeDateOnlyInputValue, normalizeNoteTitle, nowIso, sortByUpdated, uid } from "../../lib/utils";
 import { createAppError } from "../../lib/errors";
 import { getDb } from "../schema";
 
@@ -41,7 +41,7 @@ export async function saveNote(noteDraft) {
     id: noteDraft.id || uid(),
     subjectId: noteDraft.subjectId,
     termKey: subject.termKey,
-    title: noteDraft.title.trim() || "無題ノート",
+    title: normalizeNoteTitle(noteDraft.title),
     bodyText: noteDraft.bodyText,
     lectureDate,
     createdAt: existing?.createdAt || nowIso(),

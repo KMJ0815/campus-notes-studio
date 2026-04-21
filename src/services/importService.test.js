@@ -208,6 +208,30 @@ describe("importService", () => {
     expect(await db.get("material_files", "material-1")).toBeTruthy();
   });
 
+  it("normalizes blank note titles during import", async () => {
+    const manifest = buildBaseManifest({
+      notes: [
+        {
+          id: "note-1",
+          subjectId: "subject-1",
+          termKey: "2026-fall",
+          title: "   ",
+          bodyText: "本文はある",
+          lectureDate: "2026-04-20",
+          createdAt: "2026-04-20T00:00:00.000Z",
+          updatedAt: "2026-04-20T00:00:00.000Z",
+        },
+      ],
+    });
+    const archiveBlob = await buildArchive(manifest);
+
+    const { archive } = await readImportArchive(archiveBlob);
+    await applyImportArchive(archive);
+
+    const db = await getDb();
+    expect((await db.get("notes", "note-1")).title).toBe("無題ノート");
+  });
+
   it("rejects invalid backups with broken subject references", async () => {
     const manifest = buildBaseManifest({
       notes: [

@@ -88,7 +88,7 @@ export function IconActionButton({ onClick, icon: Icon, label, tone = "default",
 }
 
 export function Panel({ children, className = "" }) {
-  return <div className={`rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 ${className}`}>{children}</div>;
+  return <div className={`min-w-0 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 ${className}`}>{children}</div>;
 }
 
 export function Field({ label, children, hint }) {

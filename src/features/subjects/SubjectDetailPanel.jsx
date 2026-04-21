@@ -8,6 +8,7 @@ import {
   formatSlotLabel,
   nextLectureDateForSlots,
   normalizeDateOnlyInputValue,
+  normalizeNoteTitle,
   subjectColor,
 } from "../../lib/utils";
 import { errorMessage } from "../../lib/errors";
@@ -398,19 +399,19 @@ export function SubjectDetailPanel({
   return (
     <Panel className="min-w-0 sm:min-h-[640px]">
       <div className="min-w-0 space-y-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: subjectColor(header.subject) }} />
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: subjectColor(header.subject) }} />
               <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Subject</p>
             </div>
-            <h3 className="mt-2 text-2xl font-semibold text-slate-900">{header.subject.name}</h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <h3 className="mt-2 break-words text-2xl font-semibold text-slate-900">{header.subject.name}</h3>
+            <p className="mt-1 break-words text-sm text-slate-500">
               {header.subject.teacherName || "教員未設定"}
               {header.subject.room ? ` ・ ${header.subject.room}` : ""}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             <IconActionButton onClick={() => onEditSubject(header.subject)} icon={Pencil} label="授業を編集" />
             {!header.subject.isArchived ? (
               <IconActionButton onClick={() => onArchiveSubject(header.subject)} icon={Archive} label="授業をアーカイブ" />
@@ -430,7 +431,7 @@ export function SubjectDetailPanel({
           )}
         </div>
 
-        {header.subject.memo ? <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">{header.subject.memo}</div> : null}
+        {header.subject.memo ? <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600 break-words">{header.subject.memo}</div> : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl bg-slate-50 p-3">
@@ -493,20 +494,20 @@ export function SubjectDetailPanel({
               />
             ) : (
               notes.map((note) => (
-                <div key={note.id} className="rounded-2xl border border-slate-200 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-900">{note.title}</p>
-                      <p className="mt-1 text-xs text-slate-400">
+                <div key={note.id} className="overflow-hidden rounded-2xl border border-slate-200 p-4">
+                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words font-semibold text-slate-900">{normalizeNoteTitle(note.title)}</p>
+                      <p className="mt-1 break-words text-xs text-slate-400">
                         講義日 {note.lectureDate || "未設定"} ・ 更新 {formatDate(note.updatedAt)}
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex shrink-0 gap-2 self-start">
                       <IconActionButton onClick={() => onEditNote(note)} icon={Pencil} label="ノートを編集" />
                       <IconActionButton onClick={() => onDeleteNote(note)} icon={Trash2} label="ノートを削除" tone="danger" />
                     </div>
                   </div>
-                  <p className="mt-3 line-clamp-5 whitespace-pre-wrap text-sm leading-6 text-slate-600">{note.bodyText || "本文なし"}</p>
+                  <p className="mt-3 line-clamp-5 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{note.bodyText || "本文なし"}</p>
                 </div>
               ))
             )}
@@ -540,17 +541,17 @@ export function SubjectDetailPanel({
               />
             ) : (
               materials.map((meta) => (
-                <div key={meta.id} className="rounded-2xl border border-slate-200 p-4">
-                  <div className="flex items-start justify-between gap-3">
+                <div key={meta.id} className="overflow-hidden rounded-2xl border border-slate-200 p-4">
+                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold text-slate-900">{meta.displayName}</p>
-                      <p className="mt-1 text-xs text-slate-400">
+                      <p className="break-words font-semibold text-slate-900">{meta.displayName}</p>
+                      <p className="mt-1 break-words text-xs text-slate-400">
                         {(meta.sizeBytes / 1024).toFixed(1)} KB ・ {meta.mimeType || meta.fileExt || "ファイル"}
                       </p>
                       <p className="mt-1 text-xs text-slate-400">追加 {formatDate(meta.createdAt)}</p>
-                      {meta.note ? <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{meta.note}</p> : <p className="mt-2 text-sm text-slate-400">資料メモなし</p>}
+                      {meta.note ? <p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-600">{meta.note}</p> : <p className="mt-2 text-sm text-slate-400">資料メモなし</p>}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
                       <IconButton tone="light" onClick={() => onOpenMaterial(meta)}>
                         開く
                       </IconButton>
@@ -681,10 +682,10 @@ export function SubjectDetailPanel({
               />
             ) : (
                 attendance.map((record) => (
-                  <div key={record.id} className="rounded-2xl border border-slate-200 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-slate-900">{record.lectureDate}</p>
+                  <div key={record.id} className="overflow-hidden rounded-2xl border border-slate-200 p-4">
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words font-medium text-slate-900">{record.lectureDate}</p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           {record.status === "present" ? (
                             <Chip tone="emerald">出席</Chip>
@@ -696,12 +697,12 @@ export function SubjectDetailPanel({
                           {record.slotLabel ? <Chip tone="indigo">{record.slotLabel}</Chip> : <Chip>コマ未指定</Chip>}
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex shrink-0 gap-2 self-start">
                         <IconActionButton onClick={() => startEditAttendance(record)} icon={Pencil} label="出席を編集" disabled={savingAttendance} />
                         <IconActionButton onClick={() => onDeleteAttendance(record)} icon={Trash2} label="出席を削除" tone="danger" disabled={savingAttendance} />
                       </div>
                     </div>
-                    {record.memo ? <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">{record.memo}</p> : null}
+                    {record.memo ? <p className="mt-3 whitespace-pre-wrap break-words text-sm text-slate-600">{record.memo}</p> : null}
                   </div>
                 ))
               )}

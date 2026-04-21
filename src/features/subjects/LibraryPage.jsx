@@ -39,18 +39,25 @@ export function LibraryPage({
             />
           ) : (
             activeSubjects.map((subject) => (
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 key={subject.id}
                 onClick={() => onSelectSubject(subject.id)}
-                className="w-full rounded-3xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  onSelectSubject(subject.id);
+                }}
+                className="w-full overflow-hidden rounded-3xl border border-slate-200 p-4 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-1 h-12 w-2 rounded-full" style={{ backgroundColor: subjectColor(subject) }} />
-                    <div>
-                      <p className="text-lg font-semibold text-slate-900">{subject.name}</p>
-                      <p className="mt-1 text-sm text-slate-500">
+                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <div className="mt-1 h-12 w-2 shrink-0 rounded-full" style={{ backgroundColor: subjectColor(subject) }} />
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words text-lg font-semibold text-slate-900">{subject.name}</p>
+                      <p className="mt-1 break-words text-sm text-slate-500">
                         {subject.teacherName || "教員未設定"}
                         {subject.room ? ` ・ ${subject.room}` : ""}
                       </p>
@@ -70,7 +77,7 @@ export function LibraryPage({
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex shrink-0 gap-2 self-start">
                     <IconActionButton
                       onClick={(event) => {
                         event.stopPropagation();
@@ -89,7 +96,7 @@ export function LibraryPage({
                     />
                   </div>
                 </div>
-              </button>
+              </div>
             ))
           )}
         </div>
@@ -105,9 +112,9 @@ export function LibraryPage({
             />
           ) : (
             archivedSubjects.map((subject) => (
-              <div key={subject.id} className="rounded-2xl border border-slate-200 p-4">
-                <p className="font-semibold text-slate-900">{subject.name}</p>
-                <p className="mt-1 text-sm text-slate-500">{subject.teacherName || "教員未設定"}</p>
+              <div key={subject.id} className="overflow-hidden rounded-2xl border border-slate-200 p-4">
+                <p className="break-words font-semibold text-slate-900">{subject.name}</p>
+                <p className="mt-1 break-words text-sm text-slate-500">{subject.teacherName || "教員未設定"}</p>
                 <div className="mt-3">
                   <IconButton tone="light" onClick={() => onRestoreSubject(subject)}>
                     復元
