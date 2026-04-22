@@ -211,6 +211,7 @@ export async function archiveSubject(subjectId) {
     });
   }
   await tx.done;
+  return getSubject(subjectId);
 }
 
 export async function restoreSubject(subjectId) {

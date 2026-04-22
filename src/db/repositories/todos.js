@@ -1,8 +1,8 @@
 import { createAppError } from "../../lib/errors";
 import {
-  isValidDateOnly,
   normalizeDateOnlyInputValue,
   nowIso,
+  parseOptionalDateInput,
   sortTodos,
   uid,
 } from "../../lib/utils";
@@ -14,12 +14,11 @@ function normalizeTodoStatus(value) {
 }
 
 function normalizeDueDate(value) {
-  const normalized = normalizeDateOnlyInputValue(value);
-  if (!value) return "";
-  if (!isValidDateOnly(normalized)) {
-    throw createAppError("INVALID_TODO_DUE_DATE", "期限日は正しい日付で入力してください。");
+  const parsed = parseOptionalDateInput(value, { fieldLabel: "期限日" });
+  if (!parsed.isValid) {
+    throw createAppError("INVALID_TODO_DUE_DATE", parsed.error);
   }
-  return normalized;
+  return parsed.normalized;
 }
 
 function sanitizeTitle(value) {
@@ -87,7 +86,7 @@ export async function saveTodo(todoDraft) {
         : timestamp
       : null;
 
-  await todoStore.put({
+  const savedTodo = {
     id: todoDraft.id || uid(),
     subjectId: todoDraft.subjectId,
     termKey: subject.termKey,
@@ -98,8 +97,10 @@ export async function saveTodo(todoDraft) {
     completedAt,
     createdAt: existing?.createdAt || timestamp,
     updatedAt: timestamp,
-  });
+  };
+  await todoStore.put(savedTodo);
   await tx.done;
+  return normalizeTodo(savedTodo);
 }
 
 export async function deleteTodo(todoId) {
@@ -109,4 +110,5 @@ export async function deleteTodo(todoId) {
     throw createAppError("STALE_DRAFT", "この ToDo は既に削除されています。");
   }
   await db.delete("todo_items", todoId);
+  return normalizeTodo(existing);
 }

@@ -40,6 +40,57 @@ export function normalizeDateOnlyInputValue(value) {
   return formatDateOnlyParts(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
 }
 
+export function normalizeStrictDateOnlyInputValue(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return isValidDateOnly(trimmed) ? trimmed : "";
+}
+
+export function parseOptionalDateInput(rawValue, { fieldLabel = "日付" } = {}) {
+  const raw = typeof rawValue === "string" ? rawValue : "";
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return {
+      raw,
+      normalized: "",
+      hasInput: false,
+      isValid: true,
+      error: "",
+    };
+  }
+
+  const normalized = normalizeStrictDateOnlyInputValue(trimmed);
+  if (!normalized) {
+    return {
+      raw,
+      normalized: "",
+      hasInput: true,
+      isValid: false,
+      error: `${fieldLabel}は YYYY-MM-DD 形式の正しい日付で入力してください。`,
+    };
+  }
+
+  return {
+    raw,
+    normalized,
+    hasInput: true,
+    isValid: true,
+    error: "",
+  };
+}
+
+export function parseRequiredDateInput(rawValue, { fieldLabel = "日付" } = {}) {
+  const parsed = parseOptionalDateInput(rawValue, { fieldLabel });
+  if (!parsed.hasInput) {
+    return {
+      ...parsed,
+      isValid: false,
+      error: `${fieldLabel}は必須です。`,
+    };
+  }
+  return parsed;
+}
+
 export function normalizeTimeInputValue(value) {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
@@ -114,6 +165,7 @@ export function formatDate(iso) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
   }).format(date);
 }
 
@@ -132,7 +184,7 @@ export function weekdayKeyForToday() {
 }
 
 export function weekdayKeyFromDate(isoDate) {
-  if (!isoDate) return null;
+  if (!isValidDateOnly(isoDate)) return null;
   const date = dateFromDateOnly(isoDate);
   if (Number.isNaN(date.getTime())) return null;
   const map = [null, "mon", "tue", "wed", "thu", "fri", "sat"];

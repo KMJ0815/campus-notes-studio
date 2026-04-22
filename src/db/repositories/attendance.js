@@ -1,6 +1,6 @@
 import { ATTENDANCE_STATUS_OPTIONS } from "../../lib/constants";
 import { createAppError } from "../../lib/errors";
-import { dayLabelForKey, formatSlotLabel, isValidDateOnly, normalizeDateOnlyInputValue, nowIso, sortSlots, uid, weekdayKeyFromDate } from "../../lib/utils";
+import { dayLabelForKey, formatSlotLabel, normalizeDateOnlyInputValue, nowIso, parseRequiredDateInput, sortSlots, uid, weekdayKeyFromDate } from "../../lib/utils";
 import { getDb } from "../schema";
 import { loadPeriodDefinitions } from "./periods";
 
@@ -35,7 +35,7 @@ function slotLabelFromSnapshot(snapshot) {
 
 async function getSlotsForAttendance(slotStore, subjectId, lectureDate, options = {}) {
   const includeSlotIds = new Set(options.includeSlotIds || []);
-  const weekday = weekdayKeyFromDate(normalizeDateOnlyInputValue(lectureDate));
+  const weekday = weekdayKeyFromDate(lectureDate);
   if (!weekday && includeSlotIds.size === 0) return [];
   const slots = await slotStore.index("bySubjectId").getAll(subjectId);
   const matched = slots.filter((slot) => {
@@ -98,11 +98,13 @@ export async function countAttendanceBySubject(subjectId) {
 }
 
 export async function getAttendanceSlotOptions(subjectId, lectureDate, options = {}) {
+  const lectureDateInput = parseRequiredDateInput(lectureDate, { fieldLabel: "講義日" });
+  if (!lectureDateInput.isValid) return [];
   const db = await getDb();
   const subject = await db.get("subjects", subjectId);
   if (!subject) return [];
   const slotStore = db.transaction("slots").store;
-  const slots = await getSlotsForAttendance(slotStore, subjectId, normalizeDateOnlyInputValue(lectureDate), options);
+  const slots = await getSlotsForAttendance(slotStore, subjectId, lectureDateInput.normalized, options);
   const periods = await loadPeriodDefinitions(subject.termKey);
   return slots.map((slot) => ({
     id: slot.id,
@@ -114,10 +116,11 @@ export async function getAttendanceSlotOptions(subjectId, lectureDate, options =
 }
 
 export async function saveAttendance(attendanceDraft) {
-  const lectureDate = normalizeDateOnlyInputValue(attendanceDraft.lectureDate);
-  if (!isValidDateOnly(lectureDate)) {
-    throw createAppError("INVALID_ATTENDANCE_DATE", "講義日は必須です。正しい日付を入力してください。");
+  const lectureDateInput = parseRequiredDateInput(attendanceDraft.lectureDate, { fieldLabel: "講義日" });
+  if (!lectureDateInput.isValid) {
+    throw createAppError("INVALID_ATTENDANCE_DATE", lectureDateInput.error);
   }
+  const lectureDate = lectureDateInput.normalized;
   if (!ATTENDANCE_STATUS_OPTIONS.some((option) => option.value === attendanceDraft.status)) {
     throw createAppError("INVALID_ATTENDANCE_STATUS", "出席ステータスが不正です。");
   }
@@ -233,7 +236,7 @@ export async function saveAttendance(attendanceDraft) {
       ? buildSlotSnapshot(resolvedSlot, periods)
       : null;
 
-  await attendanceStore.put({
+  const savedAttendance = {
     id: existing?.id || attendanceDraft.id || uid(),
     subjectId: attendanceDraft.subjectId,
     termKey: subject.termKey,
@@ -244,8 +247,10 @@ export async function saveAttendance(attendanceDraft) {
     memo: attendanceDraft.memo,
     createdAt: existing?.createdAt || nowIso(),
     updatedAt: nowIso(),
-  });
+  };
+  await attendanceStore.put(savedAttendance);
   await tx.done;
+  return savedAttendance;
 }
 
 export async function deleteAttendance(attendanceId) {
@@ -255,4 +260,5 @@ export async function deleteAttendance(attendanceId) {
     throw createAppError("STALE_DRAFT", "この出席記録は既に削除されています。");
   }
   await db.delete("attendance", attendanceId);
+  return existing;
 }

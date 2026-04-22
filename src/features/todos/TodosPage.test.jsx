@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TodosPage } from "./TodosPage";
+import { formatDate } from "../../lib/utils";
 
 const subject = {
   id: "subject-1",
@@ -70,6 +71,7 @@ describe("TodosPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "レポート提出" }));
 
     expect(screen.getByText("タイトル")).not.toBeNull();
+    expect(screen.getByDisplayValue("2026-04-22")).not.toBeNull();
   });
 
   it("toggles todo status and routes to the selected subject", () => {
@@ -146,5 +148,20 @@ describe("TodosPage", () => {
     expect(onDeleteTodo).toHaveBeenCalledTimes(1);
     expect(screen.getByText("タイトル")).not.toBeNull();
     expect(screen.getByRole("button", { name: "削除" }).disabled).toBe(false);
+  });
+
+  it("shows updated timestamps with second-level precision", () => {
+    const updatedAt = "2026-04-18T09:00:05+09:00";
+    render(
+      <TodosPage
+        openTodos={[{ ...openTodo, updatedAt }]}
+        doneTodos={[]}
+        onOpenSubject={vi.fn()}
+        onSaveTodo={vi.fn().mockResolvedValue(undefined)}
+        onDeleteTodo={vi.fn().mockResolvedValue({ status: "deleted" })}
+      />,
+    );
+
+    expect(screen.getByText(`更新 ${formatDate(updatedAt)}`)).not.toBeNull();
   });
 });

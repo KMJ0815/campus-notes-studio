@@ -39,6 +39,19 @@ describe("notes repository", () => {
     ).rejects.toMatchObject({ code: "INVALID_NOTE_DATE" });
   });
 
+  it("rejects invalid lecture dates that are not strict YYYY-MM-DD values", async () => {
+    for (const lectureDate of ["2026-02-31", "2026-02-29", "2026/04/21", "2026-4-1"]) {
+      await expect(
+        saveNote({
+          subjectId,
+          title: "第1回",
+          bodyText: "summary",
+          lectureDate,
+        }),
+      ).rejects.toMatchObject({ code: "INVALID_NOTE_DATE" });
+    }
+  });
+
   it("persists lectureDate exactly as entered", async () => {
     await saveNote({
       subjectId,

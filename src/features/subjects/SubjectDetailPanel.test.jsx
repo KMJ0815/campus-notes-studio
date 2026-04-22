@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DETAIL_TABS } from "../../lib/constants";
+import { formatDate } from "../../lib/utils";
 import { SubjectDetailPanel } from "./SubjectDetailPanel";
 
 describe("SubjectDetailPanel", () => {
@@ -744,6 +745,7 @@ describe("SubjectDetailPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "追加" }));
 
     await Promise.resolve();
+    await Promise.resolve();
     expect(onSaveTodo).toHaveBeenCalledWith(
       expect.objectContaining({
         subjectId: "subject-1",
@@ -752,6 +754,125 @@ describe("SubjectDetailPanel", () => {
         status: "open",
       }),
     );
+    expect(screen.getByLabelText("ToDo期限日").value).toBe("");
+  });
+
+  it.each([
+    "2026-02-31",
+    "2026-02-29",
+    "2026/04/21",
+    "2026-4-1",
+  ])("blocks invalid quick-add due date `%s` instead of silently dropping it", (invalidValue) => {
+    const onSaveTodo = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.todos}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={onSaveTodo}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("ToDoタイトル"), { target: { value: "レポート提出" } });
+    fireEvent.change(screen.getByLabelText("ToDo期限日"), { target: { value: invalidValue } });
+    fireEvent.click(screen.getByRole("button", { name: "追加" }));
+
+    expect(onSaveTodo).not.toHaveBeenCalled();
+    expect(screen.getByText("期限日は YYYY-MM-DD 形式の正しい日付で入力してください。")).not.toBeNull();
+  });
+
+  it("blocks invalid attendance lecture dates before saving", () => {
+    const onSaveAttendance = vi.fn();
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.attendance}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={onSaveAttendance}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("YYYY-MM-DD"), { target: { value: "2026-02-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(onSaveAttendance).not.toHaveBeenCalled();
+    expect(screen.getByText("講義日は YYYY-MM-DD 形式の正しい日付で入力してください。")).not.toBeNull();
   });
 
   it("submits quick add from Enter without using the add button click", async () => {
@@ -1788,5 +1909,68 @@ describe("SubjectDetailPanel", () => {
     expect(confirmSpy).toHaveBeenCalledWith("未保存の変更があります。破棄しますか？");
     expect(screen.getByDisplayValue("参考文献を読む（更新）")).not.toBeNull();
     confirmSpy.mockRestore();
+  });
+
+  it("shows todo updated timestamps with second-level precision", () => {
+    const updatedAt = "2026-04-18T09:00:05+09:00";
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 1,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.todos}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[
+          {
+            id: "todo-1",
+            subjectId: "subject-1",
+            title: "参考文献を読む",
+            memo: "",
+            dueDate: "2026-04-22",
+            status: "open",
+            completedAt: null,
+            createdAt: "2026-04-18T09:00:00.000Z",
+            updatedAt,
+          },
+        ]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(`更新 ${formatDate(updatedAt)}`)).not.toBeNull();
   });
 });

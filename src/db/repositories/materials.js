@@ -142,7 +142,7 @@ async function createMaterial(subjectId, file, note = "") {
     if (!subject) {
       throw createAppError("NOT_FOUND", "授業が見つかりませんでした。");
     }
-    await metaStore.put({
+    const materialMeta = {
       id: materialId,
       subjectId,
       termKey: subject.termKey,
@@ -154,9 +154,10 @@ async function createMaterial(subjectId, file, note = "") {
       note,
       createdAt: timestamp,
       updatedAt: timestamp,
-    });
+    };
+    await metaStore.put(materialMeta);
     await tx.done;
-    return materialId;
+    return materialMeta;
   } catch (error) {
     await deleteMaterialFile(materialId);
     throw error;
@@ -182,26 +183,28 @@ export async function countMaterialsBySubject(subjectId) {
 
 export async function saveMaterial(subjectId, file, note = "") {
   validateMaterialFiles([file]);
-  await createMaterial(subjectId, file, note);
+  return createMaterial(subjectId, file, note);
 }
 
 export async function saveMaterialsBatch(subjectId, files, note = "") {
   validateMaterialFiles(files);
-  const createdMaterialIds = [];
+  const createdMaterials = [];
 
   try {
     for (const file of files) {
-      const materialId = await createMaterial(subjectId, file, note);
-      createdMaterialIds.push(materialId);
+      const materialMeta = await createMaterial(subjectId, file, note);
+      createdMaterials.push(materialMeta);
     }
   } catch (error) {
     const db = await getDb();
-    for (const materialId of createdMaterialIds) {
-      await deleteMaterialFile(materialId).catch(() => {});
-      await db.delete("material_meta", materialId).catch(() => {});
+    for (const materialMeta of createdMaterials) {
+      await deleteMaterialFile(materialMeta.id).catch(() => {});
+      await db.delete("material_meta", materialMeta.id).catch(() => {});
     }
     throw error;
   }
+
+  return createdMaterials;
 }
 
 export async function updateMaterialNote(materialId, note, baseUpdatedAt = null) {
@@ -214,12 +217,14 @@ export async function updateMaterialNote(materialId, note, baseUpdatedAt = null)
   if (baseUpdatedAt && existing.updatedAt !== baseUpdatedAt) {
     throw createAppError("STALE_UPDATE", "この資料メモは別の画面で更新されています。開き直してから保存してください。");
   }
-  await tx.store.put({
+  const savedMaterial = {
     ...existing,
     note,
     updatedAt: nowIso(),
-  });
+  };
+  await tx.store.put(savedMaterial);
   await tx.done;
+  return savedMaterial;
 }
 
 function shouldPreviewMaterial({ mimeType, fileExt }) {

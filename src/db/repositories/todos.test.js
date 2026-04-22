@@ -80,6 +80,26 @@ describe("todos repository", () => {
     expect(await countDoneTodosBySubject(subjectId)).toBe(1);
   });
 
+  it("updates due dates when editing an existing todo", async () => {
+    await saveTodo({
+      subjectId,
+      title: "提出確認",
+      memo: "",
+      dueDate: "2026-04-19",
+      status: "open",
+    });
+
+    const [existing] = await loadSubjectTodos(subjectId);
+    await saveTodo({
+      ...existing,
+      baseUpdatedAt: existing.updatedAt,
+      dueDate: "2026-04-22",
+    });
+
+    const [updated] = await loadSubjectTodos(subjectId);
+    expect(updated.dueDate).toBe("2026-04-22");
+  });
+
   it("rejects stale updates and stale deletes", async () => {
     await saveTodo({
       subjectId,
@@ -114,14 +134,16 @@ describe("todos repository", () => {
       }),
     ).rejects.toMatchObject({ code: "INVALID_TODO_TITLE" });
 
-    await expect(
-      saveTodo({
-        subjectId,
-        title: "課題",
-        memo: "",
-        dueDate: "2026-04-99",
-        status: "open",
-      }),
-    ).rejects.toMatchObject({ code: "INVALID_TODO_DUE_DATE" });
+    for (const dueDate of ["2026-02-31", "2026-02-29", "2026/04/21", "2026-4-1"]) {
+      await expect(
+        saveTodo({
+          subjectId,
+          title: "課題",
+          memo: "",
+          dueDate,
+          status: "open",
+        }),
+      ).rejects.toMatchObject({ code: "INVALID_TODO_DUE_DATE" });
+    }
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
-import { deepEqualJson, emptyTodoDraft, isValidDateOnly, normalizeDateOnlyInputValue } from "../../lib/utils";
+import { deepEqualJson, emptyTodoDraft, normalizeDateOnlyInputValue, parseOptionalDateInput } from "../../lib/utils";
 import { Field, IconButton, Modal, SelectInput, TextArea, TextInput } from "../../components/ui";
 import { TODO_STATUS_OPTIONS } from "../../lib/constants";
 
@@ -34,19 +34,19 @@ export function TodoFormModal({ open, subject, initialValue, onClose, onSave }) 
   }
 
   async function handleSave() {
-    const dueDate = normalizeDateOnlyInputValue(draft.dueDate);
+    const dueDateInput = parseOptionalDateInput(draft.dueDate, { fieldLabel: "期限日" });
     if (!draft.title.trim()) {
       setTitleError("ToDo のタイトルは必須です。");
       return;
     }
-    if (draft.dueDate && !isValidDateOnly(dueDate)) {
-      setDueDateError("期限日は正しい日付で入力してください。");
+    if (!dueDateInput.isValid) {
+      setDueDateError(dueDateInput.error);
       return;
     }
 
     setSaving(true);
     try {
-      await onSave({ ...draft, dueDate });
+      await onSave({ ...draft, dueDate: dueDateInput.normalized });
       onClose();
     } catch {
       return;
@@ -81,16 +81,19 @@ export function TodoFormModal({ open, subject, initialValue, onClose, onSave }) 
           </Field>
 
           <div className="grid gap-4 md:grid-cols-[220px_220px]">
-            <Field label="期限">
+            <Field label="期限" hint="任意">
               <>
                 <TextInput
-                  type="date"
+                  type="text"
                   value={draft.dueDate || ""}
                   onChange={(event) => {
                     setDraft((current) => ({ ...current, dueDate: event.target.value }));
                     if (dueDateError) setDueDateError("");
                   }}
+                  placeholder="YYYY-MM-DD"
+                  inputMode="numeric"
                 />
+                <p className="text-xs text-slate-500">期限は任意です。入力する場合は `YYYY-MM-DD` 形式で保存されます。</p>
                 {dueDateError ? <p className="text-xs text-rose-600">{dueDateError}</p> : null}
               </>
             </Field>

@@ -9,6 +9,8 @@ import {
   nextLectureDateForSlots,
   normalizeDateOnlyInputValue,
   normalizeNoteTitle,
+  parseOptionalDateInput,
+  parseRequiredDateInput,
   subjectColor,
 } from "../../lib/utils";
 import { errorMessage } from "../../lib/errors";
@@ -80,11 +82,13 @@ export function SubjectDetailPanel({
   const [attendanceSlotOptions, setAttendanceSlotOptions] = useState([]);
   const [attendanceSlotOptionsReady, setAttendanceSlotOptionsReady] = useState(false);
   const [attendanceSlotOptionsError, setAttendanceSlotOptionsError] = useState("");
+  const [attendanceDateError, setAttendanceDateError] = useState("");
   const [attendanceSlotReloadNonce, setAttendanceSlotReloadNonce] = useState(0);
   const [attendanceDateTouched, setAttendanceDateTouched] = useState(false);
   const [savingAttendance, setSavingAttendance] = useState(false);
   const [quickTodoTitle, setQuickTodoTitle] = useState("");
   const [quickTodoDueDate, setQuickTodoDueDate] = useState("");
+  const [quickTodoDueDateError, setQuickTodoDueDateError] = useState("");
   const [savingQuickTodo, setSavingQuickTodo] = useState(false);
   const [todoEditorInitialValue, setTodoEditorInitialValue] = useState(null);
   const [showCompletedTodos, setShowCompletedTodos] = useState(false);
@@ -101,6 +105,7 @@ export function SubjectDetailPanel({
   function resetAttendanceDraft() {
     if (!header?.subject?.id) return;
     setAttendanceDateTouched(false);
+    setAttendanceDateError("");
     setAttendanceSlotOptionsError("");
     setAttendanceDraft(emptyAttendanceDraft(header.subject.id, defaultAttendanceLectureDate));
   }
@@ -117,6 +122,7 @@ export function SubjectDetailPanel({
       savingAttendanceRef.current = false;
       setQuickTodoTitle("");
       setQuickTodoDueDate("");
+      setQuickTodoDueDateError("");
       setSavingQuickTodo(false);
       quickTodoSavePendingRef.current = false;
       pendingTodoIdsRef.current = new Set();
@@ -130,6 +136,7 @@ export function SubjectDetailPanel({
       savingAttendanceRef.current = false;
       setQuickTodoTitle("");
       setQuickTodoDueDate("");
+      setQuickTodoDueDateError("");
       setSavingQuickTodo(false);
       quickTodoSavePendingRef.current = false;
       pendingTodoIdsRef.current = new Set();
@@ -170,10 +177,17 @@ export function SubjectDetailPanel({
         setAttendanceSlotOptionsError("");
         return;
       }
+      const lectureDateInput = parseRequiredDateInput(attendanceDraft.lectureDate, { fieldLabel: "講義日" });
+      if (!lectureDateInput.isValid) {
+        setAttendanceSlotOptions([]);
+        setAttendanceSlotOptionsReady(false);
+        setAttendanceSlotOptionsError("");
+        return;
+      }
       setAttendanceSlotOptionsReady(false);
       setAttendanceSlotOptionsError("");
       try {
-        const options = await loadAttendanceSlotOptions(header.subject.id, attendanceDraft.lectureDate, {
+        const options = await loadAttendanceSlotOptions(header.subject.id, lectureDateInput.normalized, {
           includeSlotIds: attendanceDraft?.timetableSlotId ? [attendanceDraft.timetableSlotId] : [],
         });
         if (!cancelled) {
@@ -257,6 +271,7 @@ export function SubjectDetailPanel({
 
   function startEditAttendance(record) {
     setAttendanceDateTouched(false);
+    setAttendanceDateError("");
     setAttendanceDraft({
       id: record.id,
       baseUpdatedAt: record.updatedAt,
@@ -270,12 +285,17 @@ export function SubjectDetailPanel({
 
   async function handleSaveAttendance() {
     if (!attendanceDraft || savingAttendanceRef.current || attendanceSlotOptionsError) return;
+    const lectureDateInput = parseRequiredDateInput(attendanceDraft.lectureDate, { fieldLabel: "講義日" });
+    if (!lectureDateInput.isValid) {
+      setAttendanceDateError(lectureDateInput.error);
+      return;
+    }
     const subjectId = header?.subject?.id || null;
     const sessionId = subjectSessionRef.current;
     savingAttendanceRef.current = true;
     setSavingAttendance(true);
     try {
-      await onSaveAttendance(attendanceDraft);
+      await onSaveAttendance({ ...attendanceDraft, lectureDate: lectureDateInput.normalized });
       if (subjectSessionRef.current !== sessionId || currentSubjectIdRef.current !== subjectId) return;
       resetAttendanceDraft();
     } catch {
@@ -325,6 +345,11 @@ export function SubjectDetailPanel({
   async function handleQuickAddTodo(event) {
     event?.preventDefault();
     if (!header?.subject?.id || !quickTodoTitle.trim() || quickTodoSavePendingRef.current) return;
+    const dueDateInput = parseOptionalDateInput(quickTodoDueDate, { fieldLabel: "期限日" });
+    if (!dueDateInput.isValid) {
+      setQuickTodoDueDateError(dueDateInput.error);
+      return;
+    }
 
     const subjectId = header.subject.id;
     const sessionId = subjectSessionRef.current;
@@ -335,7 +360,7 @@ export function SubjectDetailPanel({
       await onSaveTodo(
         emptyTodoDraft(header.subject.id, {
           title: quickTodoTitle,
-          dueDate: quickTodoDueDate,
+          dueDate: dueDateInput.normalized,
         }),
       );
       didSave = true;
@@ -346,6 +371,7 @@ export function SubjectDetailPanel({
       if (didSave) {
         setQuickTodoTitle("");
         setQuickTodoDueDate("");
+        setQuickTodoDueDateError("");
       }
       quickTodoSavePendingRef.current = false;
       setSavingQuickTodo(false);
@@ -599,16 +625,29 @@ export function SubjectDetailPanel({
               </div>
               <div className="mt-4 space-y-3">
                 <Field label="講義日">
-                  <TextInput
-                    type="date"
-                    value={attendanceDraft?.lectureDate ?? ""}
-                    disabled={savingAttendance}
-                    onChange={(event) => {
-                      setAttendanceDateTouched(true);
-                      setAttendanceSlotOptionsError("");
-                      setAttendanceDraft((draft) => ({ ...draft, lectureDate: event.target.value, timetableSlotId: "" }));
-                    }}
-                  />
+                  <>
+                    <TextInput
+                      type="text"
+                      placeholder="YYYY-MM-DD"
+                      inputMode="numeric"
+                      value={attendanceDraft?.lectureDate ?? ""}
+                      disabled={savingAttendance}
+                      onChange={(event) => {
+                        setAttendanceDateTouched(true);
+                        setAttendanceDateError("");
+                        setAttendanceSlotOptionsError("");
+                        setAttendanceDraft((draft) => ({ ...draft, lectureDate: event.target.value, timetableSlotId: "" }));
+                      }}
+                      onBlur={(event) => {
+                        const parsed = parseRequiredDateInput(event.target.value, { fieldLabel: "講義日" });
+                        if (!parsed.isValid) {
+                          setAttendanceDateError(parsed.error);
+                        }
+                      }}
+                    />
+                    <p className="text-xs text-slate-500">講義日は `YYYY-MM-DD` 形式で入力してください。</p>
+                    {attendanceDateError ? <p className="text-xs text-rose-600">{attendanceDateError}</p> : null}
+                  </>
                 </Field>
                 {attendanceSlotOptionsError ? (
                   <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
@@ -727,11 +766,18 @@ export function SubjectDetailPanel({
                 />
                 <TextInput
                   aria-label="ToDo期限日"
-                  type="date"
+                  type="text"
                   value={quickTodoDueDate}
                   disabled={savingQuickTodo}
-                  onChange={(event) => setQuickTodoDueDate(event.target.value)}
+                  placeholder="YYYY-MM-DD"
+                  inputMode="numeric"
+                  onChange={(event) => {
+                    setQuickTodoDueDate(event.target.value);
+                    if (quickTodoDueDateError) setQuickTodoDueDateError("");
+                  }}
                 />
+                <p className="text-xs text-slate-500">期限は任意です。入力する場合は `YYYY-MM-DD` 形式で入力してください。</p>
+                {quickTodoDueDateError ? <p className="text-xs text-rose-600">{quickTodoDueDateError}</p> : null}
                 <IconButton
                   icon={Plus}
                   type="submit"

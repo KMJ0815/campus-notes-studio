@@ -85,9 +85,13 @@ vi.mock("./features/subjects/SubjectDetailPanel", async () => {
       header,
       materials,
       notes,
+      onArchiveSubject,
       onChangeTab,
       onCreateNote,
+      onDeleteMaterial,
+      onDeleteNote,
       onEditSubject,
+      onUploadMaterials,
       onDeleteTodo,
       onSaveAttendance,
       onSaveTodo,
@@ -96,6 +100,10 @@ vi.mock("./features/subjects/SubjectDetailPanel", async () => {
     }) => {
       const [result, setResult] = React.useState("idle");
       const [attendanceResult, setAttendanceResult] = React.useState("idle");
+      const [noteDeleteResult, setNoteDeleteResult] = React.useState("idle");
+      const [materialUploadResult, setMaterialUploadResult] = React.useState("idle");
+      const [materialDeleteResult, setMaterialDeleteResult] = React.useState("idle");
+      const [archiveResult, setArchiveResult] = React.useState("idle");
       const [todoDeleteResult, setTodoDeleteResult] = React.useState("idle");
       const itemsByTab = {
         notes,
@@ -151,11 +159,68 @@ vi.mock("./features/subjects/SubjectDetailPanel", async () => {
           <button
             type="button"
             onClick={() => {
+              setNoteDeleteResult("deleting");
+              Promise.resolve(onDeleteNote?.({
+                id: "note-1",
+                subjectId: header?.subject?.id || "subject-1",
+                title: "第1回",
+                bodyText: "本文",
+                lectureDate: "2026-04-21",
+              }))
+                .then(() => setNoteDeleteResult("resolved"))
+                .catch(() => setNoteDeleteResult("rejected"));
+            }}
+          >
+            delete-note
+          </button>
+          <div>{`note-delete-${noteDeleteResult}`}</div>
+          <button
+            type="button"
+            onClick={() => {
+              setMaterialUploadResult("saving");
+              onUploadMaterials?.([
+                new File(["material"], "slide.pdf", { type: "application/pdf" }),
+              ])
+                .then(() => setMaterialUploadResult("resolved"))
+                .catch(() => setMaterialUploadResult("rejected"));
+            }}
+          >
+            upload-materials
+          </button>
+          <div>{`material-upload-${materialUploadResult}`}</div>
+          <button
+            type="button"
+            onClick={() => {
+              setMaterialDeleteResult("deleting");
+              Promise.resolve(onDeleteMaterial?.({
+                id: "material-1",
+                subjectId: header?.subject?.id || "subject-1",
+                displayName: "slide.pdf",
+                sizeBytes: 1024,
+                mimeType: "application/pdf",
+                fileExt: "pdf",
+                note: "",
+                createdAt: "2026-04-19T10:00:00.000Z",
+                updatedAt: "2026-04-19T10:00:00.000Z",
+              }))
+                .then(() => setMaterialDeleteResult("resolved"))
+                .catch(() => setMaterialDeleteResult("rejected"));
+            }}
+          >
+            delete-material
+          </button>
+          <div>{`material-delete-${materialDeleteResult}`}</div>
+          <button
+            type="button"
+            onClick={() => {
               setTodoDeleteResult("deleting");
               onDeleteTodo({
                 id: "todo-1",
                 subjectId: header?.subject?.id || "subject-1",
                 title: "再提出",
+                status: "open",
+                dueDate: "2026-04-21",
+                updatedAt: "2026-04-19T10:00:00.000Z",
               })
                 .then((value) => setTodoDeleteResult(`resolved-${value?.status || "deleted"}`))
                 .catch(() => setTodoDeleteResult("rejected"));
@@ -164,6 +229,18 @@ vi.mock("./features/subjects/SubjectDetailPanel", async () => {
             delete-todo
           </button>
           <div>{`todo-delete-${todoDeleteResult}`}</div>
+          <button
+            type="button"
+            onClick={() => {
+              setArchiveResult("archiving");
+              onArchiveSubject?.(header?.subject)
+                .then(() => setArchiveResult("resolved"))
+                .catch(() => setArchiveResult("rejected"));
+            }}
+          >
+            archive-subject
+          </button>
+          <div>{`archive-subject-${archiveResult}`}</div>
           <div>{`detail-loading-${tabLoading ? "yes" : "no"}`}</div>
           <div>{`detail-tab-${detailTab}`}</div>
           <div>{`detail-items-${currentItems.map((item) => item.id).join(",") || "none"}`}</div>
@@ -193,7 +270,7 @@ vi.mock("./features/subjects/SubjectDetailPanel", async () => {
 });
 
 vi.mock("./features/subjects/SubjectFormModal", () => ({
-  SubjectFormModal: ({ open, initialValue, onSave }) => (
+  SubjectFormModal: ({ open, initialValue, onClose, onSave }) => (
     open ? (
       <div data-testid="subject-modal">
         <div>{initialValue?.baseUpdatedAt || ""}</div>
@@ -209,7 +286,7 @@ vi.mock("./features/subjects/SubjectFormModal", () => ({
               color: initialValue?.color || "#4f46e5",
               memo: initialValue?.memo || "",
               selectedSlotKeys: initialValue?.selectedSlotKeys || [],
-            }).catch(() => undefined);
+            }).then(() => onClose()).catch(() => undefined);
           }}
         >
           save-subject
@@ -220,8 +297,28 @@ vi.mock("./features/subjects/SubjectFormModal", () => ({
 }));
 
 vi.mock("./features/notes/NoteFormModal", () => ({
-  NoteFormModal: ({ open, subject }) => (
-    open ? <div>{`note-subject-${subject?.name || "none"}`}</div> : null
+  NoteFormModal: ({ open, subject, initialValue, onClose, onSave }) => (
+    open ? (
+      <div data-testid="note-modal">
+        <div>{`note-subject-${subject?.name || "none"}`}</div>
+        <div>{`note-lecture-date-${initialValue?.lectureDate || "none"}`}</div>
+        <button
+          type="button"
+          onClick={() => {
+            void onSave({
+              id: initialValue?.id || null,
+              baseUpdatedAt: initialValue?.baseUpdatedAt || null,
+              subjectId: initialValue?.subjectId || subject?.id || "subject-1",
+              title: initialValue?.title || "第1回",
+              bodyText: initialValue?.bodyText || "本文",
+              lectureDate: initialValue?.lectureDate || "2026-04-18",
+            }).then(() => onClose()).catch(() => undefined);
+          }}
+        >
+          save-note
+        </button>
+      </div>
+    ) : null
   ),
 }));
 
@@ -309,10 +406,12 @@ vi.mock("./services/materialFileStore", () => ({
 
 import App from "./App";
 import { ensureSeedData, deleteAppDb, resetDbConnection } from "./db/schema";
-import { saveAttendance } from "./db/repositories/attendance";
+import { deleteAttendance, saveAttendance } from "./db/repositories/attendance";
+import { deleteNote, saveNote } from "./db/repositories/notes";
 import { getSettings, loadTermEditorState } from "./db/repositories/settings";
-import { restoreSubject, saveSubject } from "./db/repositories/subjects";
+import { archiveSubject, restoreSubject, saveSubject } from "./db/repositories/subjects";
 import { deleteTodo, saveTodo } from "./db/repositories/todos";
+import { deleteMaterial, saveMaterialsBatch, updateMaterialNote } from "./db/repositories/materials";
 import {
   loadDashboardSummary,
   loadLibrarySubjects,
@@ -341,10 +440,17 @@ beforeEach(() => {
   loadDashboardSummary.mockReset();
   loadLibrarySubjects.mockReset();
   loadTimetable.mockReset();
+  archiveSubject.mockReset();
   restoreSubject.mockReset();
   saveSubject.mockReset();
+  deleteAttendance.mockReset();
   saveAttendance.mockReset();
+  deleteNote.mockReset();
+  saveNote.mockReset();
+  deleteMaterial.mockReset();
   deleteTodo.mockReset();
+  saveMaterialsBatch.mockReset();
+  updateMaterialNote.mockReset();
   loadSubjectAttendance.mockReset();
   loadSubjectHeader.mockReset();
   loadSubjectMaterials.mockReset();
@@ -390,10 +496,37 @@ beforeEach(() => {
     doneTodos: [],
   });
   clearMaterialFileStorage.mockResolvedValue(undefined);
-  saveAttendance.mockResolvedValue(undefined);
-  deleteTodo.mockResolvedValue(undefined);
-  saveTodo.mockResolvedValue(undefined);
-  saveSubject.mockResolvedValue(undefined);
+  archiveSubject.mockImplementation(async (subjectId) => ({
+    ...buildSubject(subjectId, "統計学"),
+    isArchived: true,
+    updatedAt: "2026-04-20T09:00:00.000Z",
+  }));
+  saveAttendance.mockImplementation(async (draft) => buildSavedAttendance(draft));
+  deleteAttendance.mockResolvedValue(buildSavedAttendance());
+  deleteNote.mockResolvedValue(buildSavedNote());
+  saveNote.mockImplementation(async (draft) => buildSavedNote(draft));
+  deleteMaterial.mockResolvedValue({ cleanupWarning: false, cleanupError: null });
+  deleteTodo.mockResolvedValue(buildSavedTodo());
+  saveMaterialsBatch.mockImplementation(async (subjectId, files = []) => (
+    files.map((file, index) => buildSavedMaterial(subjectId, {
+      id: `material-${index + 1}`,
+      displayName: file.name,
+      mimeType: file.type || "application/octet-stream",
+      fileExt: file.name.split(".").pop() || "",
+      sizeBytes: file.size,
+    }))
+  ));
+  updateMaterialNote.mockImplementation(async (materialId, note) => buildSavedMaterial("subject-1", { id: materialId, note }));
+  saveTodo.mockImplementation(async (draft) => buildSavedTodo(draft));
+  saveSubject.mockImplementation(async (draft) => ({
+    ...buildSubject(draft.id || "subject-1", draft.name || "授業"),
+    termKey: draft.termKey || "2026-spring",
+    teacherName: draft.teacherName || "",
+    room: draft.room || "",
+    color: draft.color || "#4f46e5",
+    memo: draft.memo || "",
+    updatedAt: "2026-04-20T09:00:00.000Z",
+  }));
 });
 
 afterEach(() => {
@@ -419,6 +552,66 @@ function buildSubject(id, name, color = "#4f46e5") {
     color,
     memo: "",
     isArchived: false,
+  };
+}
+
+function buildSavedTodo(draft = {}) {
+  const updatedAt = draft.updatedAt || "2026-04-20T09:00:00.000Z";
+  return {
+    id: draft.id || "todo-1",
+    subjectId: draft.subjectId || "subject-1",
+    termKey: draft.termKey || "2026-spring",
+    title: draft.title || "再提出",
+    memo: draft.memo || "",
+    dueDate: draft.dueDate || "",
+    status: draft.status || "open",
+    completedAt: draft.status === "done" ? draft.completedAt || updatedAt : null,
+    createdAt: draft.createdAt || "2026-04-19T10:00:00.000Z",
+    updatedAt,
+  };
+}
+
+function buildSavedNote(draft = {}) {
+  return {
+    id: draft.id || "note-1",
+    subjectId: draft.subjectId || "subject-1",
+    termKey: draft.termKey || "2026-spring",
+    title: draft.title || "第1回",
+    bodyText: draft.bodyText || "本文",
+    lectureDate: draft.lectureDate || "2026-04-18",
+    createdAt: draft.createdAt || "2026-04-19T10:00:00.000Z",
+    updatedAt: draft.updatedAt || "2026-04-20T09:00:00.000Z",
+  };
+}
+
+function buildSavedAttendance(draft = {}) {
+  return {
+    id: draft.id || "attendance-1",
+    subjectId: draft.subjectId || "subject-1",
+    termKey: draft.termKey || "2026-spring",
+    lectureDate: draft.lectureDate || "2026-04-21",
+    timetableSlotId: draft.timetableSlotId || "",
+    slotSnapshot: draft.slotSnapshot || null,
+    status: draft.status || "present",
+    memo: draft.memo || "",
+    createdAt: draft.createdAt || "2026-04-19T10:00:00.000Z",
+    updatedAt: draft.updatedAt || "2026-04-20T09:00:00.000Z",
+  };
+}
+
+function buildSavedMaterial(subjectId = "subject-1", overrides = {}) {
+  return {
+    id: overrides.id || "material-1",
+    subjectId,
+    termKey: overrides.termKey || "2026-spring",
+    displayName: overrides.displayName || "slide.pdf",
+    mimeType: overrides.mimeType || "application/pdf",
+    fileExt: overrides.fileExt || "pdf",
+    storageBackend: overrides.storageBackend || "indexeddb",
+    sizeBytes: overrides.sizeBytes || 1024,
+    note: overrides.note || "",
+    createdAt: overrides.createdAt || "2026-04-19T10:00:00.000Z",
+    updatedAt: overrides.updatedAt || "2026-04-20T09:00:00.000Z",
   };
 }
 
@@ -552,18 +745,20 @@ describe("App subject action contracts", () => {
       openTodosCount: 1,
       doneTodosCount: 0,
     });
-    loadSubjectTodos.mockResolvedValue([
-      {
-        id: "todo-1",
-        subjectId: "subject-1",
-        title: "再提出",
-        memo: "",
-        dueDate: "2026-04-21",
-        status: "open",
-        completedAt: null,
-        updatedAt: "2026-04-19T10:00:00.000Z",
-      },
-    ]);
+    loadSubjectTodos
+      .mockResolvedValueOnce([
+        {
+          id: "todo-1",
+          subjectId: "subject-1",
+          title: "再提出",
+          memo: "",
+          dueDate: "2026-04-21",
+          status: "open",
+          completedAt: null,
+          updatedAt: "2026-04-19T10:00:00.000Z",
+        },
+      ])
+      .mockRejectedValueOnce(new Error("refresh failed"));
 
     render(<App />);
 
@@ -907,6 +1102,433 @@ describe("App bootstrap errors", () => {
         title: "再提出",
       }),
     );
+  });
+
+  it("resolves todo saves and warns when post-save refresh fails", async () => {
+    const subject = buildSubject("subject-1", "統計学");
+    loadTimetable
+      .mockResolvedValueOnce({
+        periods: [],
+        slots: [
+          {
+            slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+            subject,
+            openTodoCount: 0,
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "save-todo" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("todo-save-resolved")).not.toBeNull();
+      expect(screen.getByText("timetable-open-todo-counts-1")).not.toBeNull();
+      expect(screen.getByText("ToDo は保存済みですが、表示更新に失敗しました。")).not.toBeNull();
+    });
+
+    expect(saveTodo).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves attendance saves and warns when post-save refresh fails", async () => {
+    const subject = buildSubject("subject-1", "統計学");
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject,
+          openTodoCount: 0,
+        },
+      ],
+    });
+    loadSubjectHeader.mockResolvedValue({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+    loadDashboardSummary
+      .mockResolvedValueOnce({
+        activeSubjectsCount: 0,
+        notesCount: 0,
+        materialsCount: 0,
+        attendanceCount: 0,
+        openTodosCount: 0,
+        todayClasses: [],
+        recentNotes: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+    fireEvent.click(screen.getByRole("button", { name: "tab-attendance" }));
+    fireEvent.click(screen.getByRole("button", { name: "save-attendance" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("attendance-save-resolved")).not.toBeNull();
+      expect(screen.getByText("detail-items-attendance-1")).not.toBeNull();
+      expect(screen.getByText("出席は保存済みですが、表示更新に失敗しました。")).not.toBeNull();
+    });
+  });
+
+  it("resolves todo deletes and warns when post-delete refresh fails", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const subject = buildSubject("subject-1", "統計学");
+    loadTimetable
+      .mockResolvedValueOnce({
+        periods: [],
+        slots: [
+          {
+            slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+            subject,
+            openTodoCount: 1,
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadSubjectHeader.mockResolvedValue({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 1,
+      doneTodosCount: 0,
+    });
+    loadSubjectTodos.mockResolvedValue([
+      {
+        id: "todo-1",
+        subjectId: "subject-1",
+        title: "再提出",
+        memo: "",
+        dueDate: "2026-04-21",
+        status: "open",
+        completedAt: null,
+        updatedAt: "2026-04-19T10:00:00.000Z",
+      },
+    ]);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("subject-header-統計学")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "tab-todos" }));
+    fireEvent.click(screen.getByRole("button", { name: "delete-todo" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("todo-delete-resolved-deleted")).not.toBeNull();
+      expect(screen.getByText("timetable-open-todo-counts-0")).not.toBeNull();
+      expect(screen.getByText("ToDo は削除済みですが、表示更新に失敗しました。")).not.toBeNull();
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("closes the note modal and warns when post-save refresh fails", async () => {
+    const subject = buildSubject("subject-1", "統計学");
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject,
+        },
+      ],
+    });
+    loadSubjectHeader.mockResolvedValue({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+    loadDashboardSummary
+      .mockResolvedValueOnce({
+        activeSubjectsCount: 0,
+        notesCount: 0,
+        materialsCount: 0,
+        attendanceCount: 0,
+        openTodosCount: 0,
+        todayClasses: [],
+        recentNotes: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("subject-header-統計学")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "create-note" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("note-modal")).not.toBeNull();
+      expect(screen.getByText(/note-lecture-date-\d{4}-\d{2}-\d{2}/)).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "save-note" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("note-modal")).toBeNull();
+      expect(screen.getByText("ノートは保存済みですが、表示更新に失敗しました。")).not.toBeNull();
+    });
+
+    expect(saveNote).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves material uploads and warns when post-save refresh fails", async () => {
+    const subject = buildSubject("subject-1", "統計学");
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject,
+          openTodoCount: 0,
+        },
+      ],
+    });
+    loadSubjectHeader.mockResolvedValue({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+    loadDashboardSummary
+      .mockResolvedValueOnce({
+        activeSubjectsCount: 0,
+        notesCount: 0,
+        materialsCount: 0,
+        attendanceCount: 0,
+        openTodosCount: 0,
+        todayClasses: [],
+        recentNotes: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+    fireEvent.click(screen.getByRole("button", { name: "tab-materials" }));
+    fireEvent.click(screen.getByRole("button", { name: "upload-materials" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("material-upload-resolved")).not.toBeNull();
+      expect(screen.getByText("detail-items-material-1")).not.toBeNull();
+      expect(screen.getByText("資料は保存済みですが、表示更新に失敗しました。")).not.toBeNull();
+    });
+  });
+
+  it("resolves note deletes and warns when post-delete refresh fails", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const subject = buildSubject("subject-1", "統計学");
+    loadTimetable.mockResolvedValue({
+      periods: [],
+      slots: [
+        {
+          slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+          subject,
+          openTodoCount: 0,
+        },
+      ],
+    });
+    loadSubjectHeader.mockResolvedValue({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 1,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+    loadSubjectNotes.mockResolvedValue([
+      {
+        id: "note-1",
+        subjectId: "subject-1",
+        title: "第1回",
+        bodyText: "本文",
+        lectureDate: "2026-04-21",
+        updatedAt: "2026-04-19T10:00:00.000Z",
+      },
+    ]);
+    loadDashboardSummary
+      .mockResolvedValueOnce({
+        activeSubjectsCount: 0,
+        notesCount: 1,
+        materialsCount: 0,
+        attendanceCount: 0,
+        openTodosCount: 0,
+        todayClasses: [],
+        recentNotes: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+    fireEvent.click(screen.getByRole("button", { name: "delete-note" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("note-delete-resolved")).not.toBeNull();
+      expect(screen.getByText("detail-items-none")).not.toBeNull();
+      expect(screen.getByText("ノートは削除済みですが、表示更新に失敗しました。")).not.toBeNull();
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("closes the subject modal and warns when post-save refresh fails", async () => {
+    const subject = buildSubject("subject-1", "統計学");
+    loadTimetable
+      .mockResolvedValueOnce({
+        periods: [],
+        slots: [
+          {
+            slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+            subject,
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadSubjectHeader.mockResolvedValue({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+    saveSubject.mockResolvedValue({
+      ...subject,
+      updatedAt: "2026-04-21T09:00:00.000Z",
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("subject-header-統計学")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "edit-subject" }));
+    fireEvent.click(screen.getByRole("button", { name: "save-subject" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("subject-modal")).toBeNull();
+      expect(screen.getByText("授業は保存済みですが、表示更新に失敗しました。")).not.toBeNull();
+    });
+  });
+
+  it("resolves subject archive and warns when post-archive refresh fails", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const subject = buildSubject("subject-1", "統計学");
+    loadTimetable
+      .mockResolvedValueOnce({
+        periods: [],
+        slots: [
+          {
+            slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+            subject,
+            openTodoCount: 0,
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadSubjectHeader.mockResolvedValue({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("subject-header-統計学")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "archive-subject" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("archive-subject-resolved")).not.toBeNull();
+      expect(screen.getByText("subject-header-none")).not.toBeNull();
+      expect(screen.getByText("授業はアーカイブ済みですが、表示更新に失敗しました。")).not.toBeNull();
+    });
+
+    confirmSpy.mockRestore();
   });
 
   it("keeps subject header loading tied to the latest selected subject", async () => {

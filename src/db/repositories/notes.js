@@ -1,4 +1,4 @@
-import { isValidDateOnly, normalizeDateOnlyInputValue, normalizeNoteTitle, nowIso, sortByUpdated, uid } from "../../lib/utils";
+import { normalizeDateOnlyInputValue, normalizeNoteTitle, nowIso, parseRequiredDateInput, sortByUpdated, uid } from "../../lib/utils";
 import { createAppError } from "../../lib/errors";
 import { getDb } from "../schema";
 
@@ -19,10 +19,11 @@ export async function countNotesBySubject(subjectId) {
 }
 
 export async function saveNote(noteDraft) {
-  const lectureDate = normalizeDateOnlyInputValue(noteDraft.lectureDate);
-  if (!isValidDateOnly(lectureDate)) {
-    throw createAppError("INVALID_NOTE_DATE", "講義日は必須です。正しい日付を入力してください。");
+  const lectureDateInput = parseRequiredDateInput(noteDraft.lectureDate, { fieldLabel: "講義日" });
+  if (!lectureDateInput.isValid) {
+    throw createAppError("INVALID_NOTE_DATE", lectureDateInput.error);
   }
+  const lectureDate = lectureDateInput.normalized;
 
   const db = await getDb();
   const tx = db.transaction(["notes", "subjects"], "readwrite");
@@ -37,7 +38,7 @@ export async function saveNote(noteDraft) {
   if (!subject) {
     throw createAppError("NOT_FOUND", "授業が見つかりませんでした。");
   }
-  await tx.objectStore("notes").put({
+  const savedNote = {
     id: noteDraft.id || uid(),
     subjectId: noteDraft.subjectId,
     termKey: subject.termKey,
@@ -46,8 +47,10 @@ export async function saveNote(noteDraft) {
     lectureDate,
     createdAt: existing?.createdAt || nowIso(),
     updatedAt: nowIso(),
-  });
+  };
+  await tx.objectStore("notes").put(savedNote);
   await tx.done;
+  return savedNote;
 }
 
 export async function loadRecentNotesByTerm(termKey, limit = 6) {
@@ -77,4 +80,5 @@ export async function deleteNote(noteId) {
     throw createAppError("STALE_DRAFT", "このノートは既に削除されています。");
   }
   await db.delete("notes", noteId);
+  return existing;
 }

@@ -57,6 +57,31 @@ describe("attendance repository", () => {
     expect(records).toHaveLength(2);
   });
 
+  it("rejects invalid lecture dates that are not strict YYYY-MM-DD values", async () => {
+    const subject = await saveSubject({
+      termKey: "2026-spring",
+      name: "演習",
+      teacherName: "",
+      room: "",
+      color: "#4f46e5",
+      memo: "",
+      isArchived: false,
+      selectedSlotKeys: ["mon-1"],
+    });
+
+    for (const lectureDate of ["2026-02-31", "2026-02-29", "2026/04/21", "2026-4-1"]) {
+      await expect(
+        saveAttendance({
+          subjectId: subject.id,
+          lectureDate,
+          timetableSlotId: "",
+          status: "present",
+          memo: "",
+        }),
+      ).rejects.toMatchObject({ code: "INVALID_ATTENDANCE_DATE" });
+    }
+  });
+
   it("ignores archived slots in candidates and upserts on the same subject/date/slot", async () => {
     const subject = await saveSubject({
       termKey: "2026-spring",
@@ -468,7 +493,11 @@ describe("attendance repository", () => {
         status: "present",
         memo: "",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({
+      subjectId: subject.id,
+      lectureDate: "2026-04-18",
+      timetableSlotId: "",
+    });
 
     const records = await loadSubjectAttendance(subject.id);
     expect(records).toHaveLength(1);

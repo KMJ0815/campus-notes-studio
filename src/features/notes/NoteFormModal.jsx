@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
-import { deepEqualJson, emptyNoteDraft, isValidDateOnly, normalizeDateOnlyInputValue } from "../../lib/utils";
+import { deepEqualJson, emptyNoteDraft, normalizeDateOnlyInputValue, parseRequiredDateInput } from "../../lib/utils";
 import { Field, IconButton, Modal, TextArea, TextInput } from "../../components/ui";
 
 export function NoteFormModal({ open, subject, initialValue, onClose, onSave }) {
@@ -33,19 +33,19 @@ export function NoteFormModal({ open, subject, initialValue, onClose, onSave }) 
   }
 
   async function handleSave() {
-    const lectureDate = normalizeDateOnlyInputValue(draft.lectureDate);
+    const lectureDateInput = parseRequiredDateInput(draft.lectureDate, { fieldLabel: "講義日" });
     if (!draft.title.trim() && !draft.bodyText.trim()) {
       setContentError("タイトルか本文のどちらかを入力してください。");
       return;
     }
-    if (!isValidDateOnly(lectureDate)) {
-      setLectureDateError("講義日は必須です。");
+    if (!lectureDateInput.isValid) {
+      setLectureDateError(lectureDateInput.error);
       return;
     }
 
     setSaving(true);
     try {
-      await onSave({ ...draft, lectureDate });
+      await onSave({ ...draft, lectureDate: lectureDateInput.normalized });
       onClose();
     } catch {
       return;
@@ -76,11 +76,12 @@ export function NoteFormModal({ open, subject, initialValue, onClose, onSave }) 
                 placeholder="例: 第3回 講義メモ"
               />
             </Field>
-            <Field label="講義日">
+            <Field label="講義日" hint="初期値は今日">
               <>
                 <TextInput
-                  type="date"
-                  required
+                  type="text"
+                  placeholder="YYYY-MM-DD"
+                  inputMode="numeric"
                   value={draft.lectureDate || ""}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -88,12 +89,11 @@ export function NoteFormModal({ open, subject, initialValue, onClose, onSave }) 
                     if (lectureDateError) setLectureDateError("");
                   }}
                   onBlur={(event) => {
-                    const value = event.target.value;
-                    if (!value || !isValidDateOnly(normalizeDateOnlyInputValue(value))) {
-                      setLectureDateError("講義日は必須です。");
-                    }
+                    const parsed = parseRequiredDateInput(event.target.value, { fieldLabel: "講義日" });
+                    if (!parsed.isValid) setLectureDateError(parsed.error);
                   }}
                 />
+                <p className="text-xs text-slate-500">新規ノートでは今日の日付が最初から入っています。必要に応じて `YYYY-MM-DD` 形式で変更してください。</p>
                 {lectureDateError ? <p className="text-xs text-rose-600">{lectureDateError}</p> : null}
               </>
             </Field>

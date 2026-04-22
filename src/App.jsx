@@ -9,16 +9,24 @@ import {
 } from "./lib/constants";
 import { createAppError, errorMessage } from "./lib/errors";
 import {
+  activeSlotKeyFor,
+  buildNotePreview,
   dayLabelForKey,
   buildSubjectSearchHaystack,
   emptyNoteDraft,
   emptySubjectDraft,
-  isValidDateOnly,
+  formatSlotLabel,
   isValidSubjectColor,
+  nowIso,
   normalizeDateOnlyInputValue,
   normalizeNoteTitle,
   normalizeSubjectColorInput,
+  parseOptionalDateInput,
+  parseRequiredDateInput,
   slotKey,
+  sortByUpdated,
+  sortSlots,
+  sortTodos,
   uid,
 } from "./lib/utils";
 import { ensureSeedData, deleteAppDb, resetDbConnection } from "./db/schema";
@@ -123,6 +131,98 @@ function subjectTabRequestKey(subjectId, tab) {
   return `${subjectId}:${tab}`;
 }
 
+function upsertById(items, item, sortFn = null) {
+  const next = [...items.filter((entry) => entry.id !== item.id), item];
+  return sortFn ? sortFn(next) : next;
+}
+
+function removeById(items, itemId, sortFn = null) {
+  const next = items.filter((entry) => entry.id !== itemId);
+  return sortFn ? sortFn(next) : next;
+}
+
+function clampCount(value) {
+  return Math.max(0, value || 0);
+}
+
+function sortTimetableSlotItems(items = []) {
+  const itemMap = new Map(items.map((item) => [item.slot.id, item]));
+  return sortSlots(items.map((item) => item.slot)).map((slot) => itemMap.get(slot.id));
+}
+
+function firstSortableLibrarySlot(subject) {
+  return sortSlots(subject?.slots || []).find((slot) => slot.activeSlotKey) || null;
+}
+
+function compareActiveLibrarySubjects(left, right) {
+  const leftSlot = firstSortableLibrarySlot(left);
+  const rightSlot = firstSortableLibrarySlot(right);
+  if (leftSlot && !rightSlot) return -1;
+  if (!leftSlot && rightSlot) return 1;
+  if (leftSlot && rightSlot) {
+    const sortedSlots = sortSlots([leftSlot, rightSlot]);
+    if (sortedSlots[0].id !== sortedSlots[1].id) {
+      return sortedSlots[0].id === leftSlot.id ? -1 : 1;
+    }
+  }
+  return (left?.name || "").localeCompare(right?.name || "", "ja");
+}
+
+function compareArchivedLibrarySubjects(left, right) {
+  return (left?.name || "").localeCompare(right?.name || "", "ja");
+}
+
+function buildOptimisticSubjectSlots(subjectId, termKey, selectedSlotKeys = [], timestamp = nowIso()) {
+  return sortSlots(
+    selectedSlotKeys.map((selectedSlotKey) => {
+      const [weekday, periodNoRaw] = selectedSlotKey.split("-");
+      const periodNo = Number(periodNoRaw);
+      return {
+        id: `optimistic-slot:${subjectId}:${weekday}:${periodNo}`,
+        termKey,
+        subjectId,
+        weekday,
+        periodNo,
+        roomOverride: "",
+        isArchived: false,
+        activeSlotKey: activeSlotKeyFor(termKey, weekday, periodNo),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+    }),
+  );
+}
+
+function slotLabelFromSnapshot(snapshot) {
+  if (!snapshot) return "";
+  const baseLabel = formatSlotLabel(
+    { weekday: snapshot.weekday, periodNo: snapshot.periodNo },
+    [{
+      periodNo: snapshot.periodNo,
+      label: snapshot.label || `${snapshot.periodNo}限`,
+      startTime: snapshot.startTime || "",
+      endTime: snapshot.endTime || "",
+    }],
+  );
+  return snapshot.isHistorical ? `${baseLabel} (履歴)` : baseLabel;
+}
+
+function sortAttendanceRecords(records = []) {
+  return [...records].sort((left, right) => {
+    if (left.lectureDate !== right.lectureDate) {
+      return left.lectureDate < right.lectureDate ? 1 : -1;
+    }
+
+    const leftPeriod = left.slotSnapshot?.periodNo ?? Number.MAX_SAFE_INTEGER;
+    const rightPeriod = right.slotSnapshot?.periodNo ?? Number.MAX_SAFE_INTEGER;
+    if (leftPeriod !== rightPeriod) {
+      return leftPeriod - rightPeriod;
+    }
+
+    return new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+  });
+}
+
 function App() {
   const pwaState = usePwaStatus();
 
@@ -188,7 +288,9 @@ function App() {
 
   const allSubjectsMap = useMemo(() => {
     const map = new Map();
-    for (const subject of [...libraryData.activeSubjects, ...libraryData.archivedSubjects]) {
+    const activeSubjects = Array.isArray(libraryData.activeSubjects) ? libraryData.activeSubjects : [];
+    const archivedSubjects = Array.isArray(libraryData.archivedSubjects) ? libraryData.archivedSubjects : [];
+    for (const subject of [...activeSubjects, ...archivedSubjects]) {
       map.set(subject.id, subject);
     }
     for (const item of timetableData.slots) {
@@ -220,8 +322,9 @@ function App() {
 
   const visibleLibrarySubjects = useMemo(() => {
     const q = subjectSearch.trim().toLowerCase();
-    if (!q) return libraryData.activeSubjects;
-    return libraryData.activeSubjects.filter((subject) => buildSubjectSearchHaystack(subject).includes(q));
+    const activeSubjects = Array.isArray(libraryData.activeSubjects) ? libraryData.activeSubjects : [];
+    if (!q) return activeSubjects;
+    return activeSubjects.filter((subject) => buildSubjectSearchHaystack(subject).includes(q));
   }, [libraryData.activeSubjects, subjectSearch]);
 
   const selectedHeader = selectedSubjectId ? subjectHeaderCache[selectedSubjectId] || null : null;
@@ -268,6 +371,23 @@ function App() {
       });
     },
     [pushToast],
+  );
+
+  const runDeferredRefresh = useCallback(
+    (task, { title, description = "画面を開き直すと最新状態を再取得できます。" }) => {
+      void withBusy(async () => {
+        try {
+          await task();
+        } catch (error) {
+          pushToast({
+            tone: "warning",
+            title,
+            description: `${description}${error?.message ? ` (${error.message})` : ""}`,
+          });
+        }
+      });
+    },
+    [pushToast, withBusy],
   );
 
   const retryBootstrap = useCallback(() => {
@@ -327,8 +447,11 @@ function App() {
       if (dashboardRequestRef.current !== requestId || currentTermKeyRef.current !== termKey) {
         return null;
       }
-      setDashboardSummary(summary);
-      return summary;
+      const nextSummary = summary && Array.isArray(summary.todayClasses) && Array.isArray(summary.recentNotes)
+        ? summary
+        : EMPTY_STATS;
+      setDashboardSummary(nextSummary);
+      return nextSummary;
     },
     [],
   );
@@ -342,8 +465,9 @@ function App() {
       if (timetableRequestRef.current !== requestId || currentTermKeyRef.current !== termKey) {
         return null;
       }
-      setTimetableData(data);
-      return data;
+      const nextData = data && Array.isArray(data.periods) && Array.isArray(data.slots) ? data : EMPTY_TIMETABLE;
+      setTimetableData(nextData);
+      return nextData;
     },
     [],
   );
@@ -357,8 +481,11 @@ function App() {
       if (libraryRequestRef.current !== requestId || currentTermKeyRef.current !== termKey) {
         return null;
       }
-      setLibraryData(data);
-      return data;
+      const nextData = data && Array.isArray(data.periods) && Array.isArray(data.activeSubjects) && Array.isArray(data.archivedSubjects)
+        ? data
+        : EMPTY_LIBRARY;
+      setLibraryData(nextData);
+      return nextData;
     },
     [],
   );
@@ -372,8 +499,9 @@ function App() {
       if (todoPageRequestRef.current !== requestId || currentTermKeyRef.current !== termKey) {
         return null;
       }
-      setTodoPageData(data);
-      return data;
+      const nextData = data && Array.isArray(data.openTodos) && Array.isArray(data.doneTodos) ? data : EMPTY_TODOS_PAGE;
+      setTodoPageData(nextData);
+      return nextData;
     },
     [],
   );
@@ -475,6 +603,481 @@ function App() {
     },
     [refreshSubjectHeader, refreshSubjectTab],
   );
+
+  const patchSavedSubjectCaches = useCallback((savedSubject, subjectDraft, overwriteConflictImpacts = []) => {
+    const optimisticSlots = buildOptimisticSubjectSlots(savedSubject.id, savedSubject.termKey, subjectDraft.selectedSlotKeys, savedSubject.updatedAt || nowIso());
+    const optimisticActiveSlotKeys = new Set(optimisticSlots.map((slot) => slot.activeSlotKey).filter(Boolean));
+    const librarySubject = { ...savedSubject, slots: optimisticSlots };
+
+    setLibraryData((current) => {
+      const nextActiveSubjects = current.activeSubjects
+        .filter((subject) => subject.id !== savedSubject.id)
+        .map((subject) => {
+          if (subject.id === savedSubject.id) return subject;
+          if (!subject.slots?.length) return subject;
+          return {
+            ...subject,
+            slots: subject.slots.filter((slot) => !optimisticActiveSlotKeys.has(slot.activeSlotKey)),
+          };
+        });
+      return {
+        ...current,
+        activeSubjects: [...nextActiveSubjects, librarySubject].sort(compareActiveLibrarySubjects),
+        archivedSubjects: current.archivedSubjects.filter((subject) => subject.id !== savedSubject.id),
+      };
+    });
+
+    setTimetableData((current) => {
+      const preservedOpenTodoCount = current.slots.find((item) => item.subject?.id === savedSubject.id)?.openTodoCount
+        ?? selectedHeader?.openTodosCount
+        ?? 0;
+      const filteredSlotItems = current.slots.filter((item) => (
+        item.subject?.id !== savedSubject.id
+        && !optimisticActiveSlotKeys.has(item.slot.activeSlotKey)
+      ));
+      const optimisticSlotItems = optimisticSlots.map((slot) => ({
+        slot,
+        subject: savedSubject,
+        openTodoCount: preservedOpenTodoCount,
+      }));
+      return {
+        ...current,
+        slots: sortTimetableSlotItems([...filteredSlotItems, ...optimisticSlotItems]),
+      };
+    });
+
+    setSubjectHeaderCache((current) => {
+      const next = { ...current };
+      const existing = current[savedSubject.id];
+      next[savedSubject.id] = {
+        subject: { ...(existing?.subject || {}), ...savedSubject },
+        periods: existing?.periods || currentPeriods,
+        slots: optimisticSlots,
+        notesCount: existing?.notesCount || 0,
+        materialsCount: existing?.materialsCount || 0,
+        attendanceCount: existing?.attendanceCount || 0,
+        openTodosCount: existing?.openTodosCount || 0,
+        doneTodosCount: existing?.doneTodosCount || 0,
+      };
+
+      Object.entries(current).forEach(([subjectId, header]) => {
+        if (subjectId === savedSubject.id || !header?.slots?.length) return;
+        const filteredSlots = header.slots.filter((slot) => !optimisticActiveSlotKeys.has(slot.activeSlotKey));
+        if (filteredSlots.length !== header.slots.length) {
+          next[subjectId] = {
+            ...header,
+            slots: filteredSlots,
+          };
+        }
+      });
+
+      return next;
+    });
+
+    setDashboardSummary((current) => ({
+      ...current,
+      activeSubjectsCount: subjectDraft.id ? current.activeSubjectsCount : current.activeSubjectsCount + 1,
+      todayClasses: current.todayClasses.map((item) => (
+        item.subject?.id === savedSubject.id
+          ? { ...item, subject: { ...item.subject, ...savedSubject } }
+          : item
+      )),
+      recentNotes: current.recentNotes.map((note) => (
+        note.subject?.id === savedSubject.id
+          ? { ...note, subject: { ...note.subject, ...savedSubject } }
+          : note
+      )),
+    }));
+
+    setTodoPageData((current) => ({
+      openTodos: current.openTodos.map((todo) => (
+        todo.subject?.id === savedSubject.id
+          ? { ...todo, subject: { ...todo.subject, ...savedSubject } }
+          : todo
+      )),
+      doneTodos: current.doneTodos.map((todo) => (
+        todo.subject?.id === savedSubject.id
+          ? { ...todo, subject: { ...todo.subject, ...savedSubject } }
+          : todo
+      )),
+    }));
+
+    if (overwriteConflictImpacts.length > 0) {
+      setDashboardSummary((current) => ({
+        ...current,
+        todayClasses: current.todayClasses.filter((item) => !optimisticActiveSlotKeys.has(item.slot.activeSlotKey)),
+      }));
+    }
+  }, [currentPeriods, selectedHeader?.openTodosCount]);
+
+  const patchArchivedSubjectCaches = useCallback((subject) => {
+    const removedOpenTodoCount = todoPageData.openTodos.filter((todo) => todo.subjectId === subject.id).length;
+
+    if (selectedSubjectIdRef.current === subject.id) {
+      selectedSubjectIdRef.current = null;
+      setSelectedSubjectId(null);
+    }
+
+    setLibraryData((current) => {
+      const archivedSource = current.activeSubjects.find((entry) => entry.id === subject.id);
+      const nextArchivedSubject = archivedSource
+        ? { ...archivedSource, ...subject, slots: [] }
+        : { ...subject, slots: [] };
+      return {
+        ...current,
+        activeSubjects: current.activeSubjects.filter((entry) => entry.id !== subject.id),
+        archivedSubjects: upsertById(current.archivedSubjects, nextArchivedSubject, compareArchivedLibrarySubjects),
+      };
+    });
+
+    setTimetableData((current) => ({
+      ...current,
+      slots: current.slots.filter((item) => item.subject?.id !== subject.id),
+    }));
+
+    setSubjectHeaderCache((current) => {
+      const header = current[subject.id];
+      if (!header) return current;
+      return {
+        ...current,
+        [subject.id]: {
+          ...header,
+          subject: { ...header.subject, ...subject, isArchived: true },
+          slots: [],
+        },
+      };
+    });
+
+    setTodoPageData((current) => ({
+      openTodos: current.openTodos.filter((todo) => todo.subjectId !== subject.id),
+      doneTodos: current.doneTodos.filter((todo) => todo.subjectId !== subject.id),
+    }));
+
+    setDashboardSummary((current) => ({
+      ...current,
+      activeSubjectsCount: clampCount(current.activeSubjectsCount - 1),
+      openTodosCount: clampCount(current.openTodosCount - removedOpenTodoCount),
+      todayClasses: current.todayClasses.filter((item) => item.subject?.id !== subject.id),
+      recentNotes: current.recentNotes.filter((note) => note.subjectId !== subject.id),
+    }));
+  }, [todoPageData.openTodos]);
+
+  const patchRestoredSubjectCaches = useCallback((subject) => {
+    setLibraryData((current) => {
+      const archivedSource = current.archivedSubjects.find((entry) => entry.id === subject.id);
+      const restoredSubject = archivedSource
+        ? { ...archivedSource, ...subject, isArchived: false }
+        : { ...subject, isArchived: false, slots: [] };
+      return {
+        ...current,
+        activeSubjects: upsertById(current.activeSubjects, restoredSubject, compareActiveLibrarySubjects),
+        archivedSubjects: current.archivedSubjects.filter((entry) => entry.id !== subject.id),
+      };
+    });
+
+    setSubjectHeaderCache((current) => {
+      const header = current[subject.id];
+      if (!header) return current;
+      return {
+        ...current,
+        [subject.id]: {
+          ...header,
+          subject: { ...header.subject, ...subject, isArchived: false },
+        },
+      };
+    });
+
+    setDashboardSummary((current) => ({
+      ...current,
+      activeSubjectsCount: current.activeSubjectsCount + 1,
+    }));
+  }, []);
+
+  const patchSavedNoteCaches = useCallback((savedNote, { isNew = false } = {}) => {
+    const subject = allSubjectsMap.get(savedNote.subjectId) || selectedHeader?.subject || null;
+    const hydratedNote = {
+      ...savedNote,
+      previewText: buildNotePreview(savedNote.bodyText),
+      subject,
+    };
+
+    setSubjectTabCache((current) => ({
+      ...current,
+      notes: {
+        ...current.notes,
+        [savedNote.subjectId]: upsertById(current.notes[savedNote.subjectId] || [], savedNote, sortByUpdated),
+      },
+    }));
+
+    setSubjectHeaderCache((current) => {
+      const header = current[savedNote.subjectId];
+      if (!header) return current;
+      return {
+        ...current,
+        [savedNote.subjectId]: {
+          ...header,
+          notesCount: header.notesCount + (isNew ? 1 : 0),
+        },
+      };
+    });
+
+    setDashboardSummary((current) => ({
+      ...current,
+      notesCount: current.notesCount + (isNew ? 1 : 0),
+      recentNotes: upsertById(current.recentNotes, hydratedNote, sortByUpdated).slice(0, 6),
+    }));
+  }, [allSubjectsMap, selectedHeader?.subject]);
+
+  const removeNoteFromCaches = useCallback((note) => {
+    setSubjectTabCache((current) => ({
+      ...current,
+      notes: {
+        ...current.notes,
+        [note.subjectId]: removeById(current.notes[note.subjectId] || [], note.id, sortByUpdated),
+      },
+    }));
+
+    setSubjectHeaderCache((current) => {
+      const header = current[note.subjectId];
+      if (!header) return current;
+      return {
+        ...current,
+        [note.subjectId]: {
+          ...header,
+          notesCount: clampCount(header.notesCount - 1),
+        },
+      };
+    });
+
+    setDashboardSummary((current) => ({
+      ...current,
+      notesCount: clampCount(current.notesCount - 1),
+      recentNotes: removeById(current.recentNotes, note.id, sortByUpdated),
+    }));
+  }, []);
+
+  const patchSavedTodoCaches = useCallback((savedTodo, { previousStatus = null } = {}) => {
+    const subject = allSubjectsMap.get(savedTodo.subjectId) || selectedHeader?.subject || null;
+    const hydratedTodo = { ...savedTodo, subject };
+    const openDelta = Number(savedTodo.status === "open") - Number(previousStatus === "open");
+    const doneDelta = Number(savedTodo.status === "done") - Number(previousStatus === "done");
+
+    setSubjectTabCache((current) => ({
+      ...current,
+      todos: {
+        ...current.todos,
+        [savedTodo.subjectId]: upsertById(current.todos[savedTodo.subjectId] || [], hydratedTodo, sortTodos),
+      },
+    }));
+
+    setTodoPageData((current) => ({
+      openTodos: savedTodo.status === "open"
+        ? sortTodos([...current.openTodos.filter((todo) => todo.id !== savedTodo.id), hydratedTodo])
+        : current.openTodos.filter((todo) => todo.id !== savedTodo.id),
+      doneTodos: savedTodo.status === "done"
+        ? sortTodos([...current.doneTodos.filter((todo) => todo.id !== savedTodo.id), hydratedTodo])
+        : current.doneTodos.filter((todo) => todo.id !== savedTodo.id),
+    }));
+
+    setSubjectHeaderCache((current) => {
+      const header = current[savedTodo.subjectId];
+      if (!header) return current;
+      return {
+        ...current,
+        [savedTodo.subjectId]: {
+          ...header,
+          openTodosCount: clampCount(header.openTodosCount + openDelta),
+          doneTodosCount: clampCount(header.doneTodosCount + doneDelta),
+        },
+      };
+    });
+
+    setDashboardSummary((current) => ({
+      ...current,
+      openTodosCount: clampCount(current.openTodosCount + openDelta),
+    }));
+
+    setTimetableData((current) => ({
+      ...current,
+      slots: current.slots.map((item) => (
+        item.subject?.id === savedTodo.subjectId
+          ? { ...item, openTodoCount: clampCount((item.openTodoCount || 0) + openDelta) }
+          : item
+      )),
+    }));
+  }, [allSubjectsMap, selectedHeader?.subject]);
+
+  const removeTodoFromCaches = useCallback((todo) => {
+    const openDelta = todo.status === "open" ? -1 : 0;
+    const doneDelta = todo.status === "done" ? -1 : 0;
+
+    setSubjectTabCache((current) => ({
+      ...current,
+      todos: {
+        ...current.todos,
+        [todo.subjectId]: removeById(current.todos[todo.subjectId] || [], todo.id, sortTodos),
+      },
+    }));
+
+    setTodoPageData((current) => ({
+      openTodos: current.openTodos.filter((entry) => entry.id !== todo.id),
+      doneTodos: current.doneTodos.filter((entry) => entry.id !== todo.id),
+    }));
+
+    setSubjectHeaderCache((current) => {
+      const header = current[todo.subjectId];
+      if (!header) return current;
+      return {
+        ...current,
+        [todo.subjectId]: {
+          ...header,
+          openTodosCount: clampCount(header.openTodosCount + openDelta),
+          doneTodosCount: clampCount(header.doneTodosCount + doneDelta),
+        },
+      };
+    });
+
+    setDashboardSummary((current) => ({
+      ...current,
+      openTodosCount: clampCount(current.openTodosCount + openDelta),
+    }));
+
+    setTimetableData((current) => ({
+      ...current,
+      slots: current.slots.map((item) => (
+        item.subject?.id === todo.subjectId
+          ? { ...item, openTodoCount: clampCount((item.openTodoCount || 0) + openDelta) }
+          : item
+      )),
+    }));
+  }, []);
+
+  const patchSavedMaterialCaches = useCallback((material, { isNew = false } = {}) => {
+    setSubjectTabCache((current) => ({
+      ...current,
+      materials: {
+        ...current.materials,
+        [material.subjectId]: upsertById(current.materials[material.subjectId] || [], material, sortByUpdated),
+      },
+    }));
+
+    if (isNew) {
+      setSubjectHeaderCache((current) => {
+        const header = current[material.subjectId];
+        if (!header) return current;
+        return {
+          ...current,
+          [material.subjectId]: {
+            ...header,
+            materialsCount: header.materialsCount + 1,
+          },
+        };
+      });
+
+      setDashboardSummary((current) => ({
+        ...current,
+        materialsCount: current.materialsCount + 1,
+      }));
+    }
+  }, []);
+
+  const removeMaterialFromCaches = useCallback((material) => {
+    setSubjectTabCache((current) => ({
+      ...current,
+      materials: {
+        ...current.materials,
+        [material.subjectId]: removeById(current.materials[material.subjectId] || [], material.id, sortByUpdated),
+      },
+    }));
+
+    setSubjectHeaderCache((current) => {
+      const header = current[material.subjectId];
+      if (!header) return current;
+      return {
+        ...current,
+        [material.subjectId]: {
+          ...header,
+          materialsCount: clampCount(header.materialsCount - 1),
+        },
+      };
+    });
+
+    setDashboardSummary((current) => ({
+      ...current,
+      materialsCount: clampCount(current.materialsCount - 1),
+    }));
+  }, []);
+
+  const patchSavedAttendanceCaches = useCallback((attendanceRecord, { isNew = false } = {}) => {
+    const hydratedRecord = {
+      ...attendanceRecord,
+      lectureDate: normalizeDateOnlyInputValue(attendanceRecord.lectureDate),
+      timetableSlotId: attendanceRecord.timetableSlotId || "",
+      slotLabel: slotLabelFromSnapshot(attendanceRecord.slotSnapshot),
+    };
+
+    setSubjectTabCache((current) => ({
+      ...current,
+      attendance: {
+        ...current.attendance,
+        [attendanceRecord.subjectId]: upsertById(
+          current.attendance[attendanceRecord.subjectId] || [],
+          hydratedRecord,
+          sortAttendanceRecords,
+        ),
+      },
+    }));
+
+    if (isNew) {
+      setSubjectHeaderCache((current) => {
+        const header = current[attendanceRecord.subjectId];
+        if (!header) return current;
+        return {
+          ...current,
+          [attendanceRecord.subjectId]: {
+            ...header,
+            attendanceCount: header.attendanceCount + 1,
+          },
+        };
+      });
+
+      setDashboardSummary((current) => ({
+        ...current,
+        attendanceCount: current.attendanceCount + 1,
+      }));
+    }
+  }, []);
+
+  const removeAttendanceFromCaches = useCallback((attendanceRecord) => {
+    setSubjectTabCache((current) => ({
+      ...current,
+      attendance: {
+        ...current.attendance,
+        [attendanceRecord.subjectId]: removeById(
+          current.attendance[attendanceRecord.subjectId] || [],
+          attendanceRecord.id,
+          sortAttendanceRecords,
+        ),
+      },
+    }));
+
+    setSubjectHeaderCache((current) => {
+      const header = current[attendanceRecord.subjectId];
+      if (!header) return current;
+      return {
+        ...current,
+        [attendanceRecord.subjectId]: {
+          ...header,
+          attendanceCount: clampCount(header.attendanceCount - 1),
+        },
+      };
+    });
+
+    setDashboardSummary((current) => ({
+      ...current,
+      attendanceCount: clampCount(current.attendanceCount - 1),
+    }));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -747,14 +1350,18 @@ function App() {
 
     selectedSubjectIdRef.current = savedSubject.id;
     setSelectedSubjectId(savedSubject.id);
-    await Promise.all([
-      refreshDashboard(currentTermKey),
-      refreshTimetable(currentTermKey),
-      refreshLibrary(currentTermKey),
-      refreshTodosPage(currentTermKey),
-      refreshSelectedSubjectSlice(savedSubject.id),
-    ]);
+    patchSavedSubjectCaches(savedSubject, subjectDraft, overwriteConflictImpacts);
     pushToast({ tone: "success", title: "授業を保存しました。" });
+    runDeferredRefresh(
+      () => Promise.all([
+        refreshDashboard(currentTermKey),
+        refreshTimetable(currentTermKey),
+        refreshLibrary(currentTermKey),
+        refreshTodosPage(currentTermKey),
+        refreshSelectedSubjectSlice(savedSubject.id),
+      ]),
+      { title: "授業は保存済みですが、表示更新に失敗しました。" },
+    );
     if (overwriteConflictImpacts.some((conflict) => conflict.willBecomeSlotless)) {
       const affectedSubjects = [...new Set(overwriteConflictImpacts.filter((conflict) => conflict.willBecomeSlotless).map((conflict) => conflict.subjectName))];
       pushToast({
@@ -768,12 +1375,18 @@ function App() {
   async function handleArchiveSubject(subject) {
     if (!window.confirm(`「${subject.name}」をアーカイブします。時間割からは消えますが、ノートや資料は保持されます。`)) return;
     try {
-      await withBusy(() => archiveSubject(subject.id));
-      await Promise.all([refreshDashboard(currentTermKey), refreshTimetable(currentTermKey), refreshLibrary(currentTermKey), refreshTodosPage(currentTermKey)]);
-      if (selectedSubjectId === subject.id) {
-        setSelectedSubjectId(null);
-      }
+      const archivedSubject = await withBusy(() => archiveSubject(subject.id));
+      patchArchivedSubjectCaches(archivedSubject || { ...subject, isArchived: true });
       pushToast({ tone: "success", title: "授業をアーカイブしました。" });
+      runDeferredRefresh(
+        () => Promise.all([
+          refreshDashboard(currentTermKey),
+          refreshTimetable(currentTermKey),
+          refreshLibrary(currentTermKey),
+          refreshTodosPage(currentTermKey),
+        ]),
+        { title: "授業はアーカイブ済みですが、表示更新に失敗しました。" },
+      );
     } catch (error) {
       handleKnownError(error, "アーカイブに失敗しました。");
     }
@@ -782,18 +1395,26 @@ function App() {
   async function handleRestoreSubject(subject) {
     try {
       const result = await withBusy(() => restoreSubject(subject.id));
-      await Promise.all([refreshDashboard(currentTermKey), refreshTimetable(currentTermKey), refreshLibrary(currentTermKey), refreshTodosPage(currentTermKey)]);
+      const restoredSubject = result.subject || { ...subject, isArchived: false };
+      patchRestoredSubjectCaches(restoredSubject);
+      runDeferredRefresh(
+        () => Promise.all([
+          refreshDashboard(currentTermKey),
+          refreshTimetable(currentTermKey),
+          refreshLibrary(currentTermKey),
+          refreshTodosPage(currentTermKey),
+        ]),
+        { title: "授業は復元済みですが、表示更新に失敗しました。" },
+      );
       if (result.restoredSlotCount === 0) {
-        const latestHeader = await refreshSubjectHeader(subject.id);
         pushToast({
           tone: "warning",
           title: "授業一覧へ戻しましたが、時間割コマは未設定です。",
           description: "コマを設定してから使い始めてください。",
         });
         openEditSubject({
-          ...(result.subject || subject),
-          ...(latestHeader?.subject || {}),
-          slots: latestHeader?.slots || [],
+          ...restoredSubject,
+          slots: [],
         });
         return;
       }
@@ -815,25 +1436,29 @@ function App() {
   }
 
   async function handleSaveNote(draft) {
-    const lectureDate = normalizeDateOnlyInputValue(draft.lectureDate);
+    const lectureDateInput = parseRequiredDateInput(draft.lectureDate, { fieldLabel: "講義日" });
     if (!draft.title.trim() && !draft.bodyText.trim()) {
       const error = createAppError("INVALID_NOTE", "タイトルか本文のどちらかを入力してください。");
       handleKnownError(error, "ノートを保存できませんでした。");
       throw error;
     }
-    if (!isValidDateOnly(lectureDate)) {
-      const error = createAppError("INVALID_NOTE_DATE", "講義日は必須です。正しい日付を入力してください。");
+    if (!lectureDateInput.isValid) {
+      const error = createAppError("INVALID_NOTE_DATE", lectureDateInput.error);
       handleKnownError(error, "ノートを保存できませんでした。");
       throw error;
     }
-    const nextDraft = { ...draft, lectureDate };
+    const nextDraft = { ...draft, lectureDate: lectureDateInput.normalized };
     try {
-      await withBusy(() => saveNote(nextDraft));
-      await Promise.all([
-        refreshDashboard(currentTermKey),
-        refreshSelectedSubjectSlice(nextDraft.subjectId, { notes: true }),
-      ]);
+      const savedNote = await withBusy(() => saveNote(nextDraft));
+      patchSavedNoteCaches(savedNote, { isNew: !draft.id });
       pushToast({ tone: "success", title: "ノートを保存しました。" });
+      runDeferredRefresh(
+        () => Promise.all([
+          refreshDashboard(currentTermKey),
+          refreshSelectedSubjectSlice(nextDraft.subjectId, { notes: true }),
+        ]),
+        { title: "ノートは保存済みですが、表示更新に失敗しました。" },
+      );
     } catch (error) {
       if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
         await Promise.all([
@@ -856,21 +1481,29 @@ function App() {
     if (!window.confirm(`「${noteTitle}」を削除しますか？`)) return;
     try {
       await withBusy(() => deleteNote(note.id));
-      await Promise.all([
-        refreshDashboard(currentTermKey),
-        refreshSelectedSubjectSlice(note.subjectId, { notes: true }),
-      ]);
+      removeNoteFromCaches(note);
       if (noteModalState.initialValue?.id === note.id) {
         closeNoteModal();
       }
       pushToast({ tone: "success", title: "ノートを削除しました。" });
-    } catch (error) {
-      if (error?.code === "STALE_DRAFT") {
-        closeNoteModal();
-        await Promise.all([
+      runDeferredRefresh(
+        () => Promise.all([
           refreshDashboard(currentTermKey),
           refreshSelectedSubjectSlice(note.subjectId, { notes: true }),
-        ]);
+        ]),
+        { title: "ノートは削除済みですが、表示更新に失敗しました。" },
+      );
+    } catch (error) {
+      if (error?.code === "STALE_DRAFT") {
+        removeNoteFromCaches(note);
+        closeNoteModal();
+        runDeferredRefresh(
+          () => Promise.all([
+            refreshDashboard(currentTermKey),
+            refreshSelectedSubjectSlice(note.subjectId, { notes: true }),
+          ]),
+          { title: "ノートの再同期に失敗しました。" },
+        );
         handleKnownError(error, "ノートは既に削除されています。");
         return;
       }
@@ -881,12 +1514,16 @@ function App() {
   async function handleUploadMaterials(files) {
     if (!selectedSubjectId || files.length === 0) return;
     try {
-      await withBusy(() => saveMaterialsBatch(selectedSubjectId, files, ""));
-      await Promise.all([
-        refreshDashboard(currentTermKey),
-        refreshSelectedSubjectSlice(selectedSubjectId, { materials: true }),
-      ]);
+      const savedMaterials = await withBusy(() => saveMaterialsBatch(selectedSubjectId, files, ""));
+      savedMaterials.forEach((material) => patchSavedMaterialCaches(material, { isNew: true }));
       pushToast({ tone: "success", title: `${files.length} 件の資料を保存しました。` });
+      runDeferredRefresh(
+        () => Promise.all([
+          refreshDashboard(currentTermKey),
+          refreshSelectedSubjectSlice(selectedSubjectId, { materials: true }),
+        ]),
+        { title: "資料は保存済みですが、表示更新に失敗しました。" },
+      );
     } catch (error) {
       handleKnownError(error, "資料の保存に失敗しました。");
     }
@@ -911,10 +1548,10 @@ function App() {
     if (!window.confirm(`資料「${meta.displayName}」を削除しますか？`)) return;
     try {
       const result = await withBusy(() => deleteMaterial(meta.id));
-      await Promise.all([
-        refreshDashboard(currentTermKey),
-        refreshSelectedSubjectSlice(meta.subjectId, { materials: true }),
-      ]);
+      removeMaterialFromCaches(meta);
+      if (materialModalState.material?.id === meta.id) {
+        setMaterialModalState({ open: false, material: null });
+      }
       pushToast({
         tone: result.cleanupWarning ? "warning" : "success",
         title: "資料を削除しました。",
@@ -924,15 +1561,26 @@ function App() {
             : "実ファイルは既に見つかりませんでしたが、資料情報は削除しました。"
           : "",
       });
+      runDeferredRefresh(
+        () => Promise.all([
+          refreshDashboard(currentTermKey),
+          refreshSelectedSubjectSlice(meta.subjectId, { materials: true }),
+        ]),
+        { title: "資料は削除済みですが、表示更新に失敗しました。" },
+      );
     } catch (error) {
       if (error?.code === "STALE_DRAFT") {
+        removeMaterialFromCaches(meta);
         if (materialModalState.material?.id === meta.id) {
           setMaterialModalState({ open: false, material: null });
         }
-        await Promise.all([
-          refreshDashboard(currentTermKey),
-          refreshSelectedSubjectSlice(meta.subjectId, { materials: true }),
-        ]);
+        runDeferredRefresh(
+          () => Promise.all([
+            refreshDashboard(currentTermKey),
+            refreshSelectedSubjectSlice(meta.subjectId, { materials: true }),
+          ]),
+          { title: "資料の再同期に失敗しました。" },
+        );
         handleKnownError(error, "資料は既に削除されています。");
         return;
       }
@@ -941,12 +1589,17 @@ function App() {
   }
 
   async function handleSaveMaterialNote(draft) {
+    const subjectId = selectedSubjectId;
     try {
-      await withBusy(() => updateMaterialNote(draft.id, draft.note, draft.baseUpdatedAt));
-      if (selectedSubjectId) {
-        await refreshSelectedSubjectSlice(selectedSubjectId, { materials: true });
-      }
+      const savedMaterial = await withBusy(() => updateMaterialNote(draft.id, draft.note, draft.baseUpdatedAt));
+      patchSavedMaterialCaches(savedMaterial);
       pushToast({ tone: "success", title: "資料メモを保存しました。" });
+      if (subjectId) {
+        runDeferredRefresh(
+          () => refreshSelectedSubjectSlice(subjectId, { materials: true }),
+          { title: "資料メモは保存済みですが、表示更新に失敗しました。" },
+        );
+      }
     } catch (error) {
       if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
         if (selectedSubjectId) {
@@ -964,18 +1617,30 @@ function App() {
   }
 
   async function handleSaveAttendance(draft) {
+    const lectureDateInput = parseRequiredDateInput(draft.lectureDate, { fieldLabel: "講義日" });
+    if (!lectureDateInput.isValid) {
+      const error = createAppError("INVALID_ATTENDANCE_DATE", lectureDateInput.error);
+      handleKnownError(error, "出席を保存できませんでした。");
+      throw error;
+    }
+    const nextDraft = { ...draft, lectureDate: lectureDateInput.normalized };
     try {
-      await withBusy(() => saveAttendance(draft));
-      await Promise.all([
-        refreshDashboard(currentTermKey),
-        refreshSelectedSubjectSlice(draft.subjectId, { attendance: true }),
-      ]);
+      const savedAttendance = await withBusy(() => saveAttendance(nextDraft));
+      const isNew = !(subjectTabCacheRef.current.attendance[nextDraft.subjectId] || []).some((record) => record.id === savedAttendance.id);
+      patchSavedAttendanceCaches(savedAttendance, { isNew });
       pushToast({ tone: "success", title: "出席を保存しました。" });
+      runDeferredRefresh(
+        () => Promise.all([
+          refreshDashboard(currentTermKey),
+          refreshSelectedSubjectSlice(nextDraft.subjectId, { attendance: true }),
+        ]),
+        { title: "出席は保存済みですが、表示更新に失敗しました。" },
+      );
     } catch (error) {
       if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
         await Promise.all([
           refreshDashboard(currentTermKey),
-          refreshSelectedSubjectSlice(draft.subjectId, { attendance: true }),
+          refreshSelectedSubjectSlice(nextDraft.subjectId, { attendance: true }),
         ]);
         handleKnownError(
           createAppError(error.code, "この出席記録は別の画面で更新または削除されています。開き直してから編集してください。"),
@@ -1001,17 +1666,25 @@ function App() {
     if (!window.confirm(`${record.lectureDate} の出席記録を削除しますか？`)) return;
     try {
       await withBusy(() => deleteAttendance(record.id));
-      await Promise.all([
-        refreshDashboard(currentTermKey),
-        refreshSelectedSubjectSlice(record.subjectId, { attendance: true }),
-      ]);
+      removeAttendanceFromCaches(record);
       pushToast({ tone: "success", title: "出席記録を削除しました。" });
-    } catch (error) {
-      if (error?.code === "STALE_DRAFT") {
-        await Promise.all([
+      runDeferredRefresh(
+        () => Promise.all([
           refreshDashboard(currentTermKey),
           refreshSelectedSubjectSlice(record.subjectId, { attendance: true }),
-        ]);
+        ]),
+        { title: "出席記録は削除済みですが、表示更新に失敗しました。" },
+      );
+    } catch (error) {
+      if (error?.code === "STALE_DRAFT") {
+        removeAttendanceFromCaches(record);
+        runDeferredRefresh(
+          () => Promise.all([
+            refreshDashboard(currentTermKey),
+            refreshSelectedSubjectSlice(record.subjectId, { attendance: true }),
+          ]),
+          { title: "出席記録の再同期に失敗しました。" },
+        );
         handleKnownError(error, "出席記録は既に削除されています。");
         return;
       }
@@ -1020,22 +1693,38 @@ function App() {
   }
 
   async function handleSaveTodo(draft) {
+    const dueDateInput = parseOptionalDateInput(draft.dueDate, { fieldLabel: "期限日" });
+    if (!dueDateInput.isValid) {
+      const error = createAppError("INVALID_TODO_DUE_DATE", dueDateInput.error);
+      handleKnownError(error, "ToDo を保存できませんでした。");
+      throw error;
+    }
+    const nextDraft = { ...draft, dueDate: dueDateInput.normalized };
+    const previousTodo = nextDraft.id
+      ? (subjectTabCacheRef.current.todos[nextDraft.subjectId] || []).find((todo) => todo.id === nextDraft.id)
+        || todoPageData.openTodos.find((todo) => todo.id === nextDraft.id)
+        || todoPageData.doneTodos.find((todo) => todo.id === nextDraft.id)
+      : null;
     try {
-      await withBusy(() => saveTodo(draft));
-      await Promise.all([
-        refreshDashboard(currentTermKey),
-        refreshTimetable(currentTermKey),
-        refreshTodosPage(currentTermKey),
-        refreshSelectedSubjectSlice(draft.subjectId, { todos: true }),
-      ]);
+      const savedTodo = await withBusy(() => saveTodo(nextDraft));
+      patchSavedTodoCaches(savedTodo, { previousStatus: previousTodo?.status || null });
       pushToast({ tone: "success", title: "ToDo を保存しました。" });
+      runDeferredRefresh(
+        () => Promise.all([
+          refreshDashboard(currentTermKey),
+          refreshTimetable(currentTermKey),
+          refreshTodosPage(currentTermKey),
+          refreshSelectedSubjectSlice(nextDraft.subjectId, { todos: true }),
+        ]),
+        { title: "ToDo は保存済みですが、表示更新に失敗しました。" },
+      );
     } catch (error) {
       if (error?.code === "STALE_DRAFT" || error?.code === "STALE_UPDATE") {
         await Promise.all([
           refreshDashboard(currentTermKey),
           refreshTimetable(currentTermKey),
           refreshTodosPage(currentTermKey),
-          refreshSelectedSubjectSlice(draft.subjectId, { todos: true }),
+          refreshSelectedSubjectSlice(nextDraft.subjectId, { todos: true }),
         ]);
         handleKnownError(
           createAppError(error.code, "この ToDo は別の画面で更新または削除されています。開き直してから編集してください。"),
@@ -1055,22 +1744,30 @@ function App() {
     }
     try {
       await withBusy(() => deleteTodo(todo.id));
-      await Promise.all([
-        refreshDashboard(currentTermKey),
-        refreshTimetable(currentTermKey),
-        refreshTodosPage(currentTermKey),
-        refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
-      ]);
+      removeTodoFromCaches(todo);
       pushToast({ tone: "success", title: "ToDo を削除しました。" });
-      return { status: "deleted" };
-    } catch (error) {
-      if (error?.code === "STALE_DRAFT") {
-        await Promise.all([
+      runDeferredRefresh(
+        () => Promise.all([
           refreshDashboard(currentTermKey),
           refreshTimetable(currentTermKey),
           refreshTodosPage(currentTermKey),
           refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
-        ]);
+        ]),
+        { title: "ToDo は削除済みですが、表示更新に失敗しました。" },
+      );
+      return { status: "deleted" };
+    } catch (error) {
+      if (error?.code === "STALE_DRAFT") {
+        removeTodoFromCaches(todo);
+        runDeferredRefresh(
+          () => Promise.all([
+            refreshDashboard(currentTermKey),
+            refreshTimetable(currentTermKey),
+            refreshTodosPage(currentTermKey),
+            refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
+          ]),
+          { title: "ToDo の再同期に失敗しました。" },
+        );
         handleKnownError(error, "ToDo は既に削除されています。");
         return { status: "stale" };
       }
@@ -1085,6 +1782,8 @@ function App() {
     }
 
     try {
+      const selectedSubjectIdSnapshot = selectedSubjectId;
+      const shouldRefreshSelectedSubject = Boolean(selectedSubjectIdSnapshot) && draft.currentTermKey.trim() === currentTermKey;
       await withBusy(() =>
         saveSettingsBundle({
           draftSettings: draft,
@@ -1094,16 +1793,21 @@ function App() {
       );
       const nextSettings = await getSettings();
       setSettings(nextSettings);
-      await Promise.all([
-        refreshDashboard(nextSettings.currentTermKey),
-        refreshTimetable(nextSettings.currentTermKey),
-        refreshLibrary(nextSettings.currentTermKey),
-        refreshTodosPage(nextSettings.currentTermKey),
-      ]);
-      if (selectedSubjectId && draft.currentTermKey.trim() === currentTermKey) {
-        await refreshSelectedSubjectSlice(selectedSubjectId);
-      }
       pushToast({ tone: "success", title: "設定を保存しました。" });
+      runDeferredRefresh(
+        async () => {
+          await Promise.all([
+            refreshDashboard(nextSettings.currentTermKey),
+            refreshTimetable(nextSettings.currentTermKey),
+            refreshLibrary(nextSettings.currentTermKey),
+            refreshTodosPage(nextSettings.currentTermKey),
+          ]);
+          if (shouldRefreshSelectedSubject) {
+            await refreshSelectedSubjectSlice(selectedSubjectIdSnapshot);
+          }
+        },
+        { title: "設定は保存済みですが、表示更新に失敗しました。" },
+      );
     } catch (error) {
       if (error?.code === "STALE_UPDATE") {
         const nextSettings = await getSettings();
