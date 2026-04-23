@@ -1,4 +1,3 @@
-import JSZip from "jszip";
 import { normalizePeriodDrafts, validateAndNormalizePeriodDrafts } from "../db/repositories/periods";
 import { getDb } from "../db/schema";
 import { ATTENDANCE_STATUS_OPTIONS, DAY_DEFS, TERM_META_STORE, TODO_STATUS_OPTIONS } from "../lib/constants";
@@ -24,6 +23,14 @@ import { clearMaterialFileStorage } from "./materialFileStore";
 const TODO_STATUS_VALUES = new Set(TODO_STATUS_OPTIONS.map((option) => option.value));
 const ATTENDANCE_STATUS_VALUES = new Set(ATTENDANCE_STATUS_OPTIONS.map((option) => option.value));
 const VALID_WEEKDAY_KEYS = new Set(DAY_DEFS.map((day) => day.key));
+let jsZipConstructorPromise = null;
+
+async function loadJsZipConstructor() {
+  if (!jsZipConstructorPromise) {
+    jsZipConstructorPromise = import("jszip").then((module) => module.default);
+  }
+  return jsZipConstructorPromise;
+}
 
 function assertStringField(value, label, { allowEmpty = true } = {}) {
   if (typeof value !== "string") {
@@ -605,6 +612,7 @@ function normalizeImportData(manifest) {
 export async function readImportArchive(file) {
   let zip;
   try {
+    const JSZip = await loadJsZipConstructor();
     zip = await JSZip.loadAsync(file);
   } catch {
     throw createAppError("IMPORT_INVALID", "ZIP ファイルを読み込めませんでした。");

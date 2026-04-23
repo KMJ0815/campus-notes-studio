@@ -15,6 +15,7 @@ describe("materials repository", () => {
   let subjectId = "";
 
   beforeEach(async () => {
+    vi.clearAllMocks();
     await deleteAppDb();
     resetDbConnection();
     await ensureSeedData();
