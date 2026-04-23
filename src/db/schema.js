@@ -131,6 +131,7 @@ async function migrateAttendance(transaction) {
   for (const record of records) {
     await attendanceStore.put({
       ...record,
+      lectureDate: normalizeDateOnlyInputValue(record.lectureDate),
       timetableSlotId: record.timetableSlotId ?? "",
       updatedAt: record.updatedAt || nowIso(),
     });
@@ -182,6 +183,18 @@ async function migrateNotes(transaction) {
       ...item,
       title: normalizeNoteTitle(item.title),
       lectureDate: normalizeDateOnlyInputValue(item.lectureDate),
+      updatedAt: item.updatedAt || nowIso(),
+    });
+  }
+}
+
+async function migrateTodos(transaction) {
+  const todoStore = transaction.objectStore("todo_items");
+  const items = await todoStore.getAll();
+  for (const item of items) {
+    await todoStore.put({
+      ...item,
+      dueDate: normalizeDateOnlyInputValue(item.dueDate),
       updatedAt: item.updatedAt || nowIso(),
     });
   }
@@ -299,6 +312,7 @@ async function runMigration(transaction) {
   await migrateSubjects(transaction);
   await migrateAttendance(transaction);
   await migrateNotes(transaction);
+  await migrateTodos(transaction);
   await migrateMaterialMeta(transaction);
   await migratePeriodDefinitions(transaction);
   await migrateTermMeta(transaction);
@@ -375,6 +389,11 @@ export async function getDb() {
         }
         if (oldVersion < 10) {
           await migrateNotes(transaction);
+        }
+        if (oldVersion < 11) {
+          await migrateAttendance(transaction);
+          await migrateNotes(transaction);
+          await migrateTodos(transaction);
         }
 
         ensureIndexes(db, transaction);

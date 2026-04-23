@@ -100,7 +100,10 @@ export async function saveTodo(todoDraft) {
   };
   await todoStore.put(savedTodo);
   await tx.done;
-  return normalizeTodo(savedTodo);
+  return {
+    todo: normalizeTodo(savedTodo),
+    previousStatus: existing?.status || null,
+  };
 }
 
 export async function deleteTodo(todoId) {

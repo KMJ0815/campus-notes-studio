@@ -57,6 +57,10 @@ describe("materials repository", () => {
     deleteMaterialFile.mockResolvedValue(false);
 
     await expect(deleteMaterial("material-1")).resolves.toMatchObject({
+      material: expect.objectContaining({
+        id: "material-1",
+        subjectId,
+      }),
       fileDeleted: false,
       cleanupWarning: true,
     });

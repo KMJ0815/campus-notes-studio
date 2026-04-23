@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureSeedData, deleteAppDb, getDb, resetDbConnection } from "../schema";
-import { saveSubject, archiveSubject, restoreSubject, getSlotsBySubject } from "./subjects";
+import { saveSubject, archiveSubject, restoreSubject, getSlotsBySubject, getSubject } from "./subjects";
 
 describe("subjects repository", () => {
   beforeEach(async () => {
@@ -190,6 +190,46 @@ describe("subjects repository", () => {
     await db.put("period_definitions", { ...period, isEnabled: false });
 
     await expect(restoreSubject(subject.id)).rejects.toMatchObject({ code: "RESTORE_PERIOD_DISABLED" });
+  });
+
+  it("rejects re-archiving an already archived subject without clearing restoreSlotIds", async () => {
+    const subject = await saveSubject({
+      termKey: "2026-spring",
+      name: "演習",
+      teacherName: "",
+      room: "",
+      color: "#4f46e5",
+      memo: "",
+      isArchived: false,
+      selectedSlotKeys: ["mon-1", "tue-1"],
+    });
+
+    await archiveSubject(subject.id);
+    const archivedBeforeRetry = await getSubject(subject.id);
+
+    await expect(archiveSubject(subject.id)).rejects.toMatchObject({ code: "ALREADY_ARCHIVED_SUBJECT" });
+
+    const archivedAfterRetry = await getSubject(subject.id);
+    expect(archivedAfterRetry.restoreSlotIds).toEqual(archivedBeforeRetry.restoreSlotIds);
+    expect(archivedAfterRetry.restoreSlotIds).toHaveLength(2);
+  });
+
+  it("rejects restoring an already active subject", async () => {
+    const subject = await saveSubject({
+      termKey: "2026-spring",
+      name: "演習",
+      teacherName: "",
+      room: "",
+      color: "#4f46e5",
+      memo: "",
+      isArchived: false,
+      selectedSlotKeys: ["mon-1"],
+    });
+
+    await expect(restoreSubject(subject.id)).rejects.toMatchObject({ code: "ALREADY_ACTIVE_SUBJECT" });
+
+    const slots = await getSlotsBySubject(subject.id);
+    expect(slots.filter((slot) => slot.activeSlotKey)).toHaveLength(1);
   });
 
   it("rejects archiving through saveSubject and validates required fields", async () => {

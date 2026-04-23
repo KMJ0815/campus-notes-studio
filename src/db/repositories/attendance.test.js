@@ -82,6 +82,36 @@ describe("attendance repository", () => {
     }
   });
 
+  it("blanks invalid legacy lecture dates on read instead of coercing them", async () => {
+    const subject = await saveSubject({
+      termKey: "2026-spring",
+      name: "演習",
+      teacherName: "",
+      room: "",
+      color: "#4f46e5",
+      memo: "",
+      isArchived: false,
+      selectedSlotKeys: ["mon-1"],
+    });
+
+    const db = await getDb();
+    await db.put("attendance", {
+      id: "attendance-invalid-legacy",
+      subjectId: subject.id,
+      termKey: "2026-spring",
+      lectureDate: "2026-02-31",
+      timetableSlotId: "",
+      slotSnapshot: null,
+      status: "present",
+      memo: "",
+      createdAt: "2026-04-19T10:00:00.000Z",
+      updatedAt: "2026-04-20T09:00:00.000Z",
+    });
+
+    const records = await loadSubjectAttendance(subject.id);
+    expect(records.find((record) => record.id === "attendance-invalid-legacy")?.lectureDate).toBe("");
+  });
+
   it("ignores archived slots in candidates and upserts on the same subject/date/slot", async () => {
     const subject = await saveSubject({
       termKey: "2026-spring",

@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { Archive, BookOpen, Pencil } from "lucide-react";
 import { Chip, EmptyState, IconActionButton, IconButton, Panel, TextInput } from "../../components/ui";
 import { dayLabelForKey, subjectColor } from "../../lib/utils";
@@ -14,6 +15,35 @@ export function LibraryPage({
   onRestoreSubject,
   onCreateSubject,
 }) {
+  const [pendingSubjectIds, setPendingSubjectIds] = useState(() => new Set());
+  const pendingSubjectIdsRef = useRef(new Set());
+
+  function beginSubjectAction(subjectId) {
+    if (pendingSubjectIdsRef.current.has(subjectId)) return false;
+    const nextPendingIds = new Set(pendingSubjectIdsRef.current);
+    nextPendingIds.add(subjectId);
+    pendingSubjectIdsRef.current = nextPendingIds;
+    setPendingSubjectIds(nextPendingIds);
+    return true;
+  }
+
+  function endSubjectAction(subjectId) {
+    if (!pendingSubjectIdsRef.current.has(subjectId)) return;
+    const nextPendingIds = new Set(pendingSubjectIdsRef.current);
+    nextPendingIds.delete(subjectId);
+    pendingSubjectIdsRef.current = nextPendingIds;
+    setPendingSubjectIds(nextPendingIds);
+  }
+
+  async function runSubjectAction(subjectId, action) {
+    if (!beginSubjectAction(subjectId)) return;
+    try {
+      await action();
+    } finally {
+      endSubjectAction(subjectId);
+    }
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
       <Panel>
@@ -39,6 +69,9 @@ export function LibraryPage({
             />
           ) : (
             activeSubjects.map((subject) => (
+              (() => {
+                const actionPending = pendingSubjectIds.has(subject.id);
+                return (
               <div
                 role="button"
                 tabIndex={0}
@@ -85,18 +118,22 @@ export function LibraryPage({
                       }}
                       icon={Pencil}
                       label="授業を編集"
+                      disabled={actionPending}
                     />
                     <IconActionButton
                       onClick={(event) => {
                         event.stopPropagation();
-                        onArchiveSubject(subject);
+                        void runSubjectAction(subject.id, () => onArchiveSubject(subject));
                       }}
                       icon={Archive}
                       label="授業をアーカイブ"
+                      disabled={actionPending}
                     />
                   </div>
                 </div>
               </div>
+                );
+              })()
             ))
           )}
         </div>
@@ -112,15 +149,26 @@ export function LibraryPage({
             />
           ) : (
             archivedSubjects.map((subject) => (
-              <div key={subject.id} className="overflow-hidden rounded-2xl border border-slate-200 p-4">
-                <p className="break-words font-semibold text-slate-900">{subject.name}</p>
-                <p className="mt-1 break-words text-sm text-slate-500">{subject.teacherName || "教員未設定"}</p>
-                <div className="mt-3">
-                  <IconButton tone="light" onClick={() => onRestoreSubject(subject)}>
-                    復元
-                  </IconButton>
-                </div>
-              </div>
+              (() => {
+                const actionPending = pendingSubjectIds.has(subject.id);
+                return (
+                  <div key={subject.id} className="overflow-hidden rounded-2xl border border-slate-200 p-4">
+                    <p className="break-words font-semibold text-slate-900">{subject.name}</p>
+                    <p className="mt-1 break-words text-sm text-slate-500">{subject.teacherName || "教員未設定"}</p>
+                    <div className="mt-3">
+                      <IconButton
+                        tone="light"
+                        disabled={actionPending}
+                        onClick={() => {
+                          void runSubjectAction(subject.id, () => onRestoreSubject(subject));
+                        }}
+                      >
+                        復元
+                      </IconButton>
+                    </div>
+                  </div>
+                );
+              })()
             ))
           )}
         </div>

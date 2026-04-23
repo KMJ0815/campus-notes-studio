@@ -294,5 +294,5 @@ export async function deleteMaterial(materialId) {
   const tx = db.transaction("material_meta", "readwrite");
   await tx.store.delete(materialId);
   await tx.done;
-  return { fileDeleted, cleanupWarning, cleanupError };
+  return { material: existing, fileDeleted, cleanupWarning, cleanupError };
 }

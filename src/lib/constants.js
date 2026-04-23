@@ -16,7 +16,7 @@ export const DEFAULT_PERIOD_TEMPLATES = [
 ];
 
 export const DB_NAME = "campus-notes-studio";
-export const DB_VERSION = 10;
+export const DB_VERSION = 11;
 export const SETTINGS_ID = "app-settings";
 export const TERM_META_STORE = "term_meta";
 export const DEFAULT_TERM_KEY = "2026-spring";

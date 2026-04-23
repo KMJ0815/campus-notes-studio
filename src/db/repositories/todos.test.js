@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { deleteAppDb, resetDbConnection, ensureSeedData } from "../schema";
+import { deleteAppDb, getDb, resetDbConnection, ensureSeedData } from "../schema";
 import {
   countDoneTodosBySubject,
   countOpenTodosBySubject,
@@ -98,6 +98,25 @@ describe("todos repository", () => {
 
     const [updated] = await loadSubjectTodos(subjectId);
     expect(updated.dueDate).toBe("2026-04-22");
+  });
+
+  it("blanks invalid legacy due dates on read instead of coercing them", async () => {
+    const db = await getDb();
+    await db.put("todo_items", {
+      id: "todo-legacy",
+      subjectId,
+      termKey: "2026-spring",
+      title: "legacy",
+      memo: "",
+      dueDate: "2026-02-31",
+      status: "open",
+      completedAt: null,
+      createdAt: "2026-04-19T10:00:00.000Z",
+      updatedAt: "2026-04-20T09:00:00.000Z",
+    });
+
+    const [todo] = await loadSubjectTodos(subjectId);
+    expect(todo.dueDate).toBe("");
   });
 
   it("rejects stale updates and stale deletes", async () => {

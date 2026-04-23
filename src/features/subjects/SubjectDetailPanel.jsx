@@ -93,11 +93,13 @@ export function SubjectDetailPanel({
   const [todoEditorInitialValue, setTodoEditorInitialValue] = useState(null);
   const [showCompletedTodos, setShowCompletedTodos] = useState(false);
   const [pendingTodoIds, setPendingTodoIds] = useState(() => new Set());
+  const [archivePending, setArchivePending] = useState(false);
   const currentSubjectIdRef = useRef(header?.subject?.id || null);
   const subjectSessionRef = useRef(0);
   const savingAttendanceRef = useRef(false);
   const quickTodoSavePendingRef = useRef(false);
   const pendingTodoIdsRef = useRef(new Set());
+  const archivePendingRef = useRef(false);
   const defaultAttendanceLectureDate = useMemo(() => nextLectureDateForSlots(header?.slots || []), [header?.slots]);
   const openTodos = useMemo(() => todos.filter((todo) => todo.status !== "done"), [todos]);
   const doneTodos = useMemo(() => todos.filter((todo) => todo.status === "done"), [todos]);
@@ -129,6 +131,8 @@ export function SubjectDetailPanel({
       setPendingTodoIds(new Set());
       setTodoEditorInitialValue(null);
       setShowCompletedTodos(false);
+      setArchivePending(false);
+      archivePendingRef.current = false;
     } else {
       setAttendanceDraft(null);
       setAttendanceDateTouched(false);
@@ -143,6 +147,8 @@ export function SubjectDetailPanel({
       setPendingTodoIds(new Set());
       setTodoEditorInitialValue(null);
       setShowCompletedTodos(false);
+      setArchivePending(false);
+      archivePendingRef.current = false;
     }
   }, [header?.subject?.id]);
 
@@ -342,6 +348,21 @@ export function SubjectDetailPanel({
     setPendingTodoIds(nextPendingTodoIds);
   }
 
+  async function handleArchiveClick() {
+    if (!header?.subject || archivePendingRef.current) return;
+    const subjectId = header.subject.id;
+    const sessionId = subjectSessionRef.current;
+    archivePendingRef.current = true;
+    setArchivePending(true);
+    try {
+      await onArchiveSubject(header.subject);
+    } finally {
+      if (subjectSessionRef.current !== sessionId || currentSubjectIdRef.current !== subjectId) return;
+      archivePendingRef.current = false;
+      setArchivePending(false);
+    }
+  }
+
   async function handleQuickAddTodo(event) {
     event?.preventDefault();
     if (!header?.subject?.id || !quickTodoTitle.trim() || quickTodoSavePendingRef.current) return;
@@ -440,7 +461,7 @@ export function SubjectDetailPanel({
           <div className="flex shrink-0 flex-wrap gap-2">
             <IconActionButton onClick={() => onEditSubject(header.subject)} icon={Pencil} label="授業を編集" />
             {!header.subject.isArchived ? (
-              <IconActionButton onClick={() => onArchiveSubject(header.subject)} icon={Archive} label="授業をアーカイブ" />
+              <IconActionButton onClick={handleArchiveClick} icon={Archive} label="授業をアーカイブ" disabled={archivePending} />
             ) : null}
           </div>
         </div>

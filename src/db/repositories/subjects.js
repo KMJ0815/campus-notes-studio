@@ -192,6 +192,11 @@ export async function archiveSubject(subjectId) {
   if (!subject) {
     throw createAppError("NOT_FOUND", "授業が見つかりませんでした。");
   }
+  if (subject.isArchived) {
+    throw createAppError("ALREADY_ARCHIVED_SUBJECT", "この授業は既にアーカイブされています。", {
+      subject,
+    });
+  }
 
   const timestamp = nowIso();
   const slots = await getSubjectSlots(slotStore, subjectId);
@@ -223,6 +228,11 @@ export async function restoreSubject(subjectId) {
   const subject = await subjectStore.get(subjectId);
   if (!subject) {
     throw createAppError("NOT_FOUND", "授業が見つかりませんでした。");
+  }
+  if (!subject.isArchived) {
+    throw createAppError("ALREADY_ACTIVE_SUBJECT", "この授業は既に復元されています。", {
+      subject,
+    });
   }
 
   const slots = await getSubjectSlots(slotStore, subjectId);
@@ -262,6 +272,12 @@ export async function restoreSubject(subjectId) {
   await tx.done;
   return {
     restoredSlotCount: restoreSlots.length,
+    restoredSlots: restoreSlots.map((slot) => ({
+      ...slot,
+      isArchived: false,
+      activeSlotKey: activeSlotKeyFor(slot.termKey, slot.weekday, slot.periodNo),
+      updatedAt: timestamp,
+    })),
     subject: await getSubject(subjectId),
   };
 }

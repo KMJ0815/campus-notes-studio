@@ -31,13 +31,25 @@ export function isValidDateOnly(value) {
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 }
 
-export function normalizeDateOnlyInputValue(value) {
-  if (!value) return "";
-  if (isValidDateOnly(value)) return value;
+function extractLegacyDateOnlyCandidate(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+    return formatDateOnlyParts(value.getFullYear(), value.getMonth() + 1, value.getDate());
+  }
+  if (typeof value !== "string") return "";
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return formatDateOnlyParts(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (isValidDateOnly(trimmed)) return trimmed;
+
+  const matched = trimmed.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s].*)$/);
+  if (!matched) return "";
+  return isValidDateOnly(matched[1]) ? matched[1] : "";
+}
+
+export function normalizeDateOnlyInputValue(value) {
+  // Legacy/import/read path only. This never rolls invalid dates forward.
+  return extractLegacyDateOnlyCandidate(value);
 }
 
 export function normalizeStrictDateOnlyInputValue(value) {

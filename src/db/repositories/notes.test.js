@@ -85,6 +85,23 @@ describe("notes repository", () => {
     expect(notes[0].lectureDate).toBe("2026-04-18");
   });
 
+  it("blanks invalid legacy lecture dates on read instead of coercing them", async () => {
+    const db = await getDb();
+    await db.put("notes", {
+      id: "note-invalid-legacy",
+      subjectId,
+      termKey: "2026-spring",
+      title: "legacy",
+      bodyText: "",
+      lectureDate: "2026-02-31",
+      createdAt: "2026-04-17T12:00:00.000Z",
+      updatedAt: "2026-04-17T12:00:00.000Z",
+    });
+
+    const notes = await loadSubjectNotes(subjectId);
+    expect(notes.find((note) => note.id === "note-invalid-legacy")?.lectureDate).toBe("");
+  });
+
   it("rejects stale note drafts instead of recreating deleted notes", async () => {
     await saveNote({
       subjectId,

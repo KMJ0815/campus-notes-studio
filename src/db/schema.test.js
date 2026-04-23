@@ -162,4 +162,24 @@ describe("schema migration", () => {
     const db = await getDb();
     expect((await db.get("notes", "note-blank-title")).title).toBe("無題ノート");
   });
+
+  it("blanks invalid legacy note lecture dates during migration instead of coercing them", async () => {
+    await createV1Database({
+      notes: [
+        {
+          id: "note-invalid-date",
+          subjectId: "subject-1",
+          title: "legacy",
+          bodyText: "本文",
+          lectureDate: "2026-02-31",
+          createdAt: "2026-04-17T12:00:00.000Z",
+          updatedAt: "2026-04-17T12:00:00.000Z",
+        },
+      ],
+    });
+    resetDbConnection();
+
+    const db = await getDb();
+    expect((await db.get("notes", "note-invalid-date")).lectureDate).toBe("");
+  });
 });

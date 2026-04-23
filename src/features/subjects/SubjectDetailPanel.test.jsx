@@ -79,6 +79,68 @@ describe("SubjectDetailPanel", () => {
     expect(screen.getByRole("button", { name: "ノートを削除" })).not.toBeNull();
   });
 
+  it("guards archive actions while an archive request is pending", async () => {
+    const deferred = createDeferred();
+    const onArchiveSubject = vi.fn(() => deferred.promise);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.notes}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={onArchiveSubject}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    const archiveButton = screen.getByRole("button", { name: "授業をアーカイブ" });
+    fireEvent.click(archiveButton);
+    fireEvent.click(archiveButton);
+
+    expect(onArchiveSubject).toHaveBeenCalledTimes(1);
+    expect(archiveButton.hasAttribute("disabled")).toBe(true);
+
+    deferred.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
   it("hardens the subject header and note cards against long text and blank titles", () => {
     const longSubjectName = "応用データサイエンス特論".repeat(6);
     const longMemo = "https://example.com/" + "memo/".repeat(20);
