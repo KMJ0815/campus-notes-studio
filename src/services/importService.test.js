@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
 import { deleteAppDb, ensureSeedData, getDb, resetDbConnection } from "../db/schema";
 import { buildMaterialArchivePath } from "./backupManifest";
@@ -182,6 +182,38 @@ describe("importService", () => {
         blob: expect.anything(),
       }),
     );
+  });
+
+  it("allows retrying archive reads after a failed attempt in the same session", async () => {
+    await expect(readImportArchive(new Blob(["broken-zip"]))).rejects.toMatchObject({
+      code: "IMPORT_INVALID",
+    });
+
+    const manifest = buildBaseManifest();
+    const archiveBlob = await buildArchive(manifest, [
+      {
+        path: manifest.materialFiles[0].path,
+        content: "pdf-bytes",
+      },
+    ]);
+
+    const { preview } = await readImportArchive(archiveBlob);
+    expect(preview.counts.todos).toBe(1);
+  });
+
+  it("reads archives while offline", async () => {
+    const onlineSpy = vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
+    const manifest = buildBaseManifest();
+    const archiveBlob = await buildArchive(manifest, [
+      {
+        path: manifest.materialFiles[0].path,
+        content: "pdf-bytes",
+      },
+    ]);
+
+    const { preview } = await readImportArchive(archiveBlob);
+    expect(preview.counts.materials).toBe(1);
+    onlineSpy.mockRestore();
   });
 
   it("accepts a v3 backup and normalizes todos to an empty list", async () => {

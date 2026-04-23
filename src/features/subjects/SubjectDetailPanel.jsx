@@ -93,12 +93,18 @@ export function SubjectDetailPanel({
   const [todoEditorInitialValue, setTodoEditorInitialValue] = useState(null);
   const [showCompletedTodos, setShowCompletedTodos] = useState(false);
   const [pendingTodoIds, setPendingTodoIds] = useState(() => new Set());
+  const [pendingNoteIds, setPendingNoteIds] = useState(() => new Set());
+  const [pendingMaterialIds, setPendingMaterialIds] = useState(() => new Set());
+  const [pendingAttendanceDeleteIds, setPendingAttendanceDeleteIds] = useState(() => new Set());
   const [archivePending, setArchivePending] = useState(false);
   const currentSubjectIdRef = useRef(header?.subject?.id || null);
   const subjectSessionRef = useRef(0);
   const savingAttendanceRef = useRef(false);
   const quickTodoSavePendingRef = useRef(false);
   const pendingTodoIdsRef = useRef(new Set());
+  const pendingNoteIdsRef = useRef(new Set());
+  const pendingMaterialIdsRef = useRef(new Set());
+  const pendingAttendanceDeleteIdsRef = useRef(new Set());
   const archivePendingRef = useRef(false);
   const defaultAttendanceLectureDate = useMemo(() => nextLectureDateForSlots(header?.slots || []), [header?.slots]);
   const openTodos = useMemo(() => todos.filter((todo) => todo.status !== "done"), [todos]);
@@ -129,6 +135,12 @@ export function SubjectDetailPanel({
       quickTodoSavePendingRef.current = false;
       pendingTodoIdsRef.current = new Set();
       setPendingTodoIds(new Set());
+      pendingNoteIdsRef.current = new Set();
+      setPendingNoteIds(new Set());
+      pendingMaterialIdsRef.current = new Set();
+      setPendingMaterialIds(new Set());
+      pendingAttendanceDeleteIdsRef.current = new Set();
+      setPendingAttendanceDeleteIds(new Set());
       setTodoEditorInitialValue(null);
       setShowCompletedTodos(false);
       setArchivePending(false);
@@ -145,6 +157,12 @@ export function SubjectDetailPanel({
       quickTodoSavePendingRef.current = false;
       pendingTodoIdsRef.current = new Set();
       setPendingTodoIds(new Set());
+      pendingNoteIdsRef.current = new Set();
+      setPendingNoteIds(new Set());
+      pendingMaterialIdsRef.current = new Set();
+      setPendingMaterialIds(new Set());
+      pendingAttendanceDeleteIdsRef.current = new Set();
+      setPendingAttendanceDeleteIds(new Set());
       setTodoEditorInitialValue(null);
       setShowCompletedTodos(false);
       setArchivePending(false);
@@ -348,6 +366,57 @@ export function SubjectDetailPanel({
     setPendingTodoIds(nextPendingTodoIds);
   }
 
+  function beginNotePending(noteId) {
+    if (pendingNoteIdsRef.current.has(noteId)) return false;
+    const nextPendingNoteIds = new Set(pendingNoteIdsRef.current);
+    nextPendingNoteIds.add(noteId);
+    pendingNoteIdsRef.current = nextPendingNoteIds;
+    setPendingNoteIds(nextPendingNoteIds);
+    return true;
+  }
+
+  function endNotePending(noteId) {
+    if (!pendingNoteIdsRef.current.has(noteId)) return;
+    const nextPendingNoteIds = new Set(pendingNoteIdsRef.current);
+    nextPendingNoteIds.delete(noteId);
+    pendingNoteIdsRef.current = nextPendingNoteIds;
+    setPendingNoteIds(nextPendingNoteIds);
+  }
+
+  function beginMaterialPending(materialId) {
+    if (pendingMaterialIdsRef.current.has(materialId)) return false;
+    const nextPendingMaterialIds = new Set(pendingMaterialIdsRef.current);
+    nextPendingMaterialIds.add(materialId);
+    pendingMaterialIdsRef.current = nextPendingMaterialIds;
+    setPendingMaterialIds(nextPendingMaterialIds);
+    return true;
+  }
+
+  function endMaterialPending(materialId) {
+    if (!pendingMaterialIdsRef.current.has(materialId)) return;
+    const nextPendingMaterialIds = new Set(pendingMaterialIdsRef.current);
+    nextPendingMaterialIds.delete(materialId);
+    pendingMaterialIdsRef.current = nextPendingMaterialIds;
+    setPendingMaterialIds(nextPendingMaterialIds);
+  }
+
+  function beginAttendanceDeletePending(attendanceId) {
+    if (pendingAttendanceDeleteIdsRef.current.has(attendanceId)) return false;
+    const nextPendingAttendanceDeleteIds = new Set(pendingAttendanceDeleteIdsRef.current);
+    nextPendingAttendanceDeleteIds.add(attendanceId);
+    pendingAttendanceDeleteIdsRef.current = nextPendingAttendanceDeleteIds;
+    setPendingAttendanceDeleteIds(nextPendingAttendanceDeleteIds);
+    return true;
+  }
+
+  function endAttendanceDeletePending(attendanceId) {
+    if (!pendingAttendanceDeleteIdsRef.current.has(attendanceId)) return;
+    const nextPendingAttendanceDeleteIds = new Set(pendingAttendanceDeleteIdsRef.current);
+    nextPendingAttendanceDeleteIds.delete(attendanceId);
+    pendingAttendanceDeleteIdsRef.current = nextPendingAttendanceDeleteIds;
+    setPendingAttendanceDeleteIds(nextPendingAttendanceDeleteIds);
+  }
+
   async function handleArchiveClick() {
     if (!header?.subject || archivePendingRef.current) return;
     const subjectId = header.subject.id;
@@ -429,6 +498,33 @@ export function SubjectDetailPanel({
       return;
     } finally {
       endTodoPending(todo.id);
+    }
+  }
+
+  async function handleDeleteNote(note) {
+    if (!beginNotePending(note.id)) return;
+    try {
+      await onDeleteNote(note);
+    } finally {
+      endNotePending(note.id);
+    }
+  }
+
+  async function handleDeleteMaterial(meta) {
+    if (!beginMaterialPending(meta.id)) return;
+    try {
+      await onDeleteMaterial(meta);
+    } finally {
+      endMaterialPending(meta.id);
+    }
+  }
+
+  async function handleDeleteAttendance(record) {
+    if (!beginAttendanceDeletePending(record.id)) return;
+    try {
+      await onDeleteAttendance(record);
+    } finally {
+      endAttendanceDeletePending(record.id);
     }
   }
 
@@ -551,7 +647,13 @@ export function SubjectDetailPanel({
                     </div>
                     <div className="flex shrink-0 gap-2 self-start">
                       <IconActionButton onClick={() => onEditNote(note)} icon={Pencil} label="ノートを編集" />
-                      <IconActionButton onClick={() => onDeleteNote(note)} icon={Trash2} label="ノートを削除" tone="danger" />
+                      <IconActionButton
+                        onClick={() => handleDeleteNote(note)}
+                        icon={Trash2}
+                        label="ノートを削除"
+                        tone="danger"
+                        disabled={pendingNoteIds.has(note.id)}
+                      />
                     </div>
                   </div>
                   <p className="mt-3 line-clamp-5 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{note.bodyText || "本文なし"}</p>
@@ -603,7 +705,13 @@ export function SubjectDetailPanel({
                         開く
                       </IconButton>
                       <IconActionButton onClick={() => onEditMaterial(meta)} icon={Pencil} label="資料メモを編集" />
-                      <IconActionButton onClick={() => onDeleteMaterial(meta)} icon={Trash2} label="資料を削除" tone="danger" />
+                      <IconActionButton
+                        onClick={() => handleDeleteMaterial(meta)}
+                        icon={Trash2}
+                        label="資料を削除"
+                        tone="danger"
+                        disabled={pendingMaterialIds.has(meta.id)}
+                      />
                     </div>
                   </div>
                 </div>
@@ -759,7 +867,13 @@ export function SubjectDetailPanel({
                       </div>
                       <div className="flex shrink-0 gap-2 self-start">
                         <IconActionButton onClick={() => startEditAttendance(record)} icon={Pencil} label="出席を編集" disabled={savingAttendance} />
-                        <IconActionButton onClick={() => onDeleteAttendance(record)} icon={Trash2} label="出席を削除" tone="danger" disabled={savingAttendance} />
+                        <IconActionButton
+                          onClick={() => handleDeleteAttendance(record)}
+                          icon={Trash2}
+                          label="出席を削除"
+                          tone="danger"
+                          disabled={savingAttendance || pendingAttendanceDeleteIds.has(record.id)}
+                        />
                       </div>
                     </div>
                     {record.memo ? <p className="mt-3 whitespace-pre-wrap break-words text-sm text-slate-600">{record.memo}</p> : null}

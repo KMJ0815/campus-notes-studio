@@ -37,14 +37,22 @@ import {
   restoreSubject,
   saveSubject,
 } from "./db/repositories/subjects";
-import { deleteNote, saveNote } from "./db/repositories/notes";
+import { countNotesBySubject, deleteNote, saveNote } from "./db/repositories/notes";
 import {
+  countAttendanceBySubject,
   deleteAttendance,
   getAttendanceSlotOptions,
   saveAttendance,
 } from "./db/repositories/attendance";
-import { deleteTodo, saveTodo } from "./db/repositories/todos";
 import {
+  countDoneTodosBySubject,
+  countOpenTodosBySubject,
+  countOpenTodosByTerm,
+  deleteTodo,
+  saveTodo,
+} from "./db/repositories/todos";
+import {
+  countMaterialsBySubject,
   deleteMaterial,
   openMaterial,
   saveMaterialsBatch,
@@ -760,11 +768,20 @@ function App() {
     };
   }, [currentPeriods]);
 
-  const patchSavedSubjectCaches = useCallback((savedSubject, subjectDraft, overwriteConflictImpacts = [], { header = null } = {}) => {
+  const patchSavedSubjectCaches = useCallback((savedSubject, subjectDraft, _overwriteConflictImpacts = [], { header = null } = {}) => {
     const optimisticSlots = buildOptimisticSubjectSlots(savedSubject.id, savedSubject.termKey, subjectDraft.selectedSlotKeys, savedSubject.updatedAt || nowIso());
     const optimisticActiveSlotKeys = new Set(optimisticSlots.map((slot) => slot.activeSlotKey).filter(Boolean));
     const librarySubject = { ...savedSubject, slots: optimisticSlots };
     const subjectSnapshot = resolveSubjectScopedSnapshot(savedSubject.id, { header });
+    const todayKey = weekdayKeyForToday();
+    const periodsForDisplay = subjectSnapshot.periods || currentPeriods;
+    const optimisticTodayClasses = optimisticSlots
+      .filter((slot) => slot.activeSlotKey && slot.weekday === todayKey)
+      .map((slot) => ({
+        slot,
+        subject: savedSubject,
+        period: periodsForDisplay.find((period) => period.periodNo === slot.periodNo) || null,
+      }));
     const preservedOpenTodoCount = firstDefined(subjectSnapshot.openTodosCount, 0);
     const knownCounts = {
       notesCount: subjectSnapshot.notesCount,
@@ -841,11 +858,13 @@ function App() {
     setDashboardSummary((current) => ({
       ...current,
       activeSubjectsCount: subjectDraft.id ? current.activeSubjectsCount : current.activeSubjectsCount + 1,
-      todayClasses: current.todayClasses.map((item) => (
-        item.subject?.id === savedSubject.id
-          ? { ...item, subject: { ...item.subject, ...savedSubject } }
-          : item
-      )),
+      todayClasses: sortTimetableSlotItems([
+        ...current.todayClasses.filter((item) => (
+          item.subject?.id !== savedSubject.id
+          && !optimisticActiveSlotKeys.has(item.slot.activeSlotKey)
+        )),
+        ...optimisticTodayClasses,
+      ]),
       recentNotes: current.recentNotes.map((note) => (
         note.subject?.id === savedSubject.id
           ? { ...note, subject: { ...note.subject, ...savedSubject } }
@@ -865,13 +884,6 @@ function App() {
           : todo
       )),
     }));
-
-    if (overwriteConflictImpacts.length > 0) {
-      setDashboardSummary((current) => ({
-        ...current,
-        todayClasses: current.todayClasses.filter((item) => !optimisticActiveSlotKeys.has(item.slot.activeSlotKey)),
-      }));
-    }
   }, [currentPeriods, resolveSubjectScopedSnapshot]);
 
   const patchArchivedSubjectCaches = useCallback((subject, {
@@ -1012,12 +1024,18 @@ function App() {
       isArchived: false,
       slots: hydratedSlots,
     };
+    const hasNotesList = Array.isArray(restoredSnapshot.notes);
+    const hasMaterialsList = Array.isArray(restoredSnapshot.materials);
+    const hasAttendanceList = Array.isArray(restoredSnapshot.attendance);
+    const hasTodosList = Array.isArray(restoredSnapshot.todos);
+    const restoredNotes = hasNotesList ? restoredSnapshot.notes : [];
+    const restoredTodos = hasTodosList ? restoredSnapshot.todos : [];
     const counts = {
-      notesCount: firstDefined(restoredSnapshot.notesCount, 0),
-      materialsCount: firstDefined(restoredSnapshot.materialsCount, 0),
-      attendanceCount: firstDefined(restoredSnapshot.attendanceCount, 0),
-      openTodosCount: firstDefined(restoredSnapshot.openTodosCount, 0),
-      doneTodosCount: firstDefined(restoredSnapshot.doneTodosCount, 0),
+      notesCount: hasNotesList ? restoredNotes.length : 0,
+      materialsCount: hasMaterialsList ? restoredSnapshot.materials.length : 0,
+      attendanceCount: hasAttendanceList ? restoredSnapshot.attendance.length : 0,
+      openTodosCount: hasTodosList ? restoredTodos.filter((todo) => todo.status === "open").length : 0,
+      doneTodosCount: hasTodosList ? restoredTodos.filter((todo) => todo.status === "done").length : 0,
     };
     const nextHeader = {
       ...(subjectHeaderCacheRef.current[subject.id] || {}),
@@ -1026,8 +1044,6 @@ function App() {
       slots: hydratedSlots,
       ...counts,
     };
-    const restoredNotes = Array.isArray(restoredSnapshot.notes) ? restoredSnapshot.notes : [];
-    const restoredTodos = Array.isArray(restoredSnapshot.todos) ? restoredSnapshot.todos : [];
     const hydratedOpenTodos = restoredTodos
       .filter((todo) => todo.status === "open")
       .map((todo) => ({ ...todo, subject: restoredSubject }));
@@ -1079,30 +1095,32 @@ function App() {
     }));
 
     if (
-      Array.isArray(notes)
-      || Array.isArray(materials)
-      || Array.isArray(attendance)
-      || Array.isArray(todos)
+      hasNotesList
+      || hasMaterialsList
+      || hasAttendanceList
+      || hasTodosList
     ) {
       setSubjectTabCache((current) => ({
         ...current,
-        notes: Array.isArray(notes) ? { ...current.notes, [subject.id]: notes } : current.notes,
-        materials: Array.isArray(materials) ? { ...current.materials, [subject.id]: materials } : current.materials,
-        attendance: Array.isArray(attendance) ? { ...current.attendance, [subject.id]: attendance } : current.attendance,
-        todos: Array.isArray(todos) ? { ...current.todos, [subject.id]: todos } : current.todos,
+        notes: hasNotesList ? { ...current.notes, [subject.id]: restoredSnapshot.notes } : current.notes,
+        materials: hasMaterialsList ? { ...current.materials, [subject.id]: restoredSnapshot.materials } : current.materials,
+        attendance: hasAttendanceList ? { ...current.attendance, [subject.id]: restoredSnapshot.attendance } : current.attendance,
+        todos: hasTodosList ? { ...current.todos, [subject.id]: restoredSnapshot.todos } : current.todos,
       }));
     }
 
-    setTodoPageData((current) => ({
-      openTodos: sortTodos([
-        ...current.openTodos.filter((todo) => todo.subjectId !== subject.id),
-        ...hydratedOpenTodos,
-      ]),
-      doneTodos: sortTodos([
-        ...current.doneTodos.filter((todo) => todo.subjectId !== subject.id),
-        ...hydratedDoneTodos,
-      ]),
-    }));
+    if (hasTodosList) {
+      setTodoPageData((current) => ({
+        openTodos: sortTodos([
+          ...current.openTodos.filter((todo) => todo.subjectId !== subject.id),
+          ...hydratedOpenTodos,
+        ]),
+        doneTodos: sortTodos([
+          ...current.doneTodos.filter((todo) => todo.subjectId !== subject.id),
+          ...hydratedDoneTodos,
+        ]),
+      }));
+    }
 
     setDashboardSummary((current) => ({
       ...current,
@@ -1117,7 +1135,7 @@ function App() {
       ]),
       recentNotes: sortByUpdated([
         ...current.recentNotes.filter((note) => note.subjectId !== subject.id),
-        ...hydratedRecentNotes,
+        ...(hasNotesList ? hydratedRecentNotes : []),
       ]).slice(0, 6),
     }));
   }, [currentPeriods, resolveSubjectScopedSnapshot]);
@@ -1199,6 +1217,123 @@ function App() {
     }));
   }, []);
 
+  const patchSubjectAggregateCounts = useCallback((subjectId, {
+    notesCount = null,
+    materialsCount = null,
+    attendanceCount = null,
+    openTodosCount = null,
+    doneTodosCount = null,
+    dashboardOpenTodosCount = null,
+  } = {}) => {
+    const previousSnapshot = resolveSubjectScopedSnapshot(subjectId);
+    const previousNotesCount = firstDefined(previousSnapshot.notesCount, 0);
+    const previousMaterialsCount = firstDefined(previousSnapshot.materialsCount, 0);
+    const previousAttendanceCount = firstDefined(previousSnapshot.attendanceCount, 0);
+    const previousOpenTodosCount = firstDefined(previousSnapshot.openTodosCount, 0);
+    const previousDoneTodosCount = firstDefined(previousSnapshot.doneTodosCount, 0);
+    const nextNotesCount = notesCount === null ? previousNotesCount : notesCount;
+    const nextMaterialsCount = materialsCount === null ? previousMaterialsCount : materialsCount;
+    const nextAttendanceCount = attendanceCount === null ? previousAttendanceCount : attendanceCount;
+    const nextOpenTodosCount = openTodosCount === null ? previousOpenTodosCount : openTodosCount;
+    const nextDoneTodosCount = doneTodosCount === null ? previousDoneTodosCount : doneTodosCount;
+    const notesDelta = nextNotesCount - previousNotesCount;
+    const materialsDelta = nextMaterialsCount - previousMaterialsCount;
+    const attendanceDelta = nextAttendanceCount - previousAttendanceCount;
+    const openTodosDelta = nextOpenTodosCount - previousOpenTodosCount;
+
+    setSubjectHeaderCache((current) => {
+      const existingHeader = current[subjectId];
+      const subject = existingHeader?.subject || previousSnapshot.subject;
+      if (!existingHeader && !subject) return current;
+      const nextHeader = {
+        ...(existingHeader || {}),
+        subject: existingHeader?.subject || subject,
+        periods: existingHeader?.periods || previousSnapshot.periods || currentPeriods,
+        slots: existingHeader?.slots || previousSnapshot.slots || [],
+      };
+      if (notesCount !== null) nextHeader.notesCount = clampCount(nextNotesCount);
+      if (materialsCount !== null) nextHeader.materialsCount = clampCount(nextMaterialsCount);
+      if (attendanceCount !== null) nextHeader.attendanceCount = clampCount(nextAttendanceCount);
+      if (openTodosCount !== null) nextHeader.openTodosCount = clampCount(nextOpenTodosCount);
+      if (doneTodosCount !== null) nextHeader.doneTodosCount = clampCount(nextDoneTodosCount);
+      return {
+        ...current,
+        [subjectId]: nextHeader,
+      };
+    });
+
+    if (notesCount !== null || materialsCount !== null || attendanceCount !== null || openTodosCount !== null || dashboardOpenTodosCount !== null) {
+      setDashboardSummary((current) => ({
+        ...current,
+        notesCount: notesCount === null ? current.notesCount : clampCount(current.notesCount + notesDelta),
+        materialsCount: materialsCount === null ? current.materialsCount : clampCount(current.materialsCount + materialsDelta),
+        attendanceCount: attendanceCount === null ? current.attendanceCount : clampCount(current.attendanceCount + attendanceDelta),
+        openTodosCount: dashboardOpenTodosCount === null
+          ? (openTodosCount === null ? current.openTodosCount : clampCount(current.openTodosCount + openTodosDelta))
+          : clampCount(dashboardOpenTodosCount),
+      }));
+    }
+
+    if (openTodosCount !== null) {
+      setTimetableData((current) => ({
+        ...current,
+        slots: current.slots.map((item) => (
+          item.subject?.id === subjectId
+            ? { ...item, openTodoCount: clampCount(nextOpenTodosCount) }
+            : item
+        )),
+      }));
+    }
+  }, [currentPeriods, resolveSubjectScopedSnapshot]);
+
+  const runBestEffortStaleDeleteRecount = useCallback(async (subjectId, {
+    notes = false,
+    materials = false,
+    attendance = false,
+    todos = false,
+    termKey = currentTermKey,
+  } = {}) => {
+    if (!subjectId) return;
+    try {
+      const nextCounts = {};
+      const tasks = [];
+      if (notes) {
+        tasks.push(countNotesBySubject(subjectId).then((count) => {
+          nextCounts.notesCount = count;
+        }));
+      }
+      if (materials) {
+        tasks.push(countMaterialsBySubject(subjectId).then((count) => {
+          nextCounts.materialsCount = count;
+        }));
+      }
+      if (attendance) {
+        tasks.push(countAttendanceBySubject(subjectId).then((count) => {
+          nextCounts.attendanceCount = count;
+        }));
+      }
+      if (todos) {
+        tasks.push(
+          Promise.all([
+            countOpenTodosBySubject(subjectId),
+            countDoneTodosBySubject(subjectId),
+            countOpenTodosByTerm(termKey),
+          ]).then(([openCount, doneCount, termOpenCount]) => {
+            nextCounts.openTodosCount = openCount;
+            nextCounts.doneTodosCount = doneCount;
+            nextCounts.dashboardOpenTodosCount = termOpenCount;
+          }),
+        );
+      }
+      await Promise.all(tasks);
+      if (Object.keys(nextCounts).length > 0) {
+        patchSubjectAggregateCounts(subjectId, nextCounts);
+      }
+    } catch {
+      // Best-effort correction: deferred refresh still runs even if recount fails.
+    }
+  }, [currentTermKey, patchSubjectAggregateCounts]);
+
   const patchSavedTodoCaches = useCallback((savedTodo, { previousStatus = null } = {}) => {
     const subject = allSubjectsMap.get(savedTodo.subjectId) || selectedHeader?.subject || null;
     const hydratedTodo = { ...savedTodo, subject };
@@ -1260,7 +1395,7 @@ function App() {
       || todoPageDataRef.current.openTodos.find((entry) => entry.id === todo.id)
       || todoPageDataRef.current.doneTodos.find((entry) => entry.id === todo.id)
       || null;
-    const resolvedStatus = cachedTodo?.status || fallbackStatus;
+    const resolvedStatus = fallbackStatus || cachedTodo?.status;
     const openDelta = resolvedStatus === "open" ? -1 : 0;
     const doneDelta = resolvedStatus === "done" ? -1 : 0;
 
@@ -1745,12 +1880,9 @@ function App() {
       }
     }
 
-    const savedSubjectHydration = await loadSubjectHydrationBestEffort(savedSubject.id, { header: true });
     selectedSubjectIdRef.current = savedSubject.id;
     setSelectedSubjectId(savedSubject.id);
-    patchSavedSubjectCaches(savedSubject, subjectDraft, overwriteConflictImpacts, {
-      header: savedSubjectHydration.header || null,
-    });
+    patchSavedSubjectCaches(savedSubject, subjectDraft, overwriteConflictImpacts);
     pushToast({ tone: "success", title: "授業を保存しました。" });
     runDeferredRefresh(
       () => Promise.all([
@@ -1969,10 +2101,13 @@ function App() {
         dropNoteFromVisibleCaches(note);
         closeNoteModal();
         runDeferredRefresh(
-          () => Promise.all([
-            refreshDashboard(currentTermKey),
-            refreshSelectedSubjectSlice(note.subjectId, { notes: true }),
-          ]),
+          async () => {
+            await runBestEffortStaleDeleteRecount(note.subjectId, { notes: true });
+            await Promise.all([
+              refreshDashboard(currentTermKey),
+              refreshSelectedSubjectSlice(note.subjectId, { notes: true }),
+            ]);
+          },
           { title: "ノートの再同期に失敗しました。" },
         );
         handleKnownError(error, "ノートは既に削除されています。");
@@ -2046,10 +2181,13 @@ function App() {
           setMaterialModalState({ open: false, material: null });
         }
         runDeferredRefresh(
-          () => Promise.all([
-            refreshDashboard(currentTermKey),
-            refreshSelectedSubjectSlice(meta.subjectId, { materials: true }),
-          ]),
+          async () => {
+            await runBestEffortStaleDeleteRecount(meta.subjectId, { materials: true });
+            await Promise.all([
+              refreshDashboard(currentTermKey),
+              refreshSelectedSubjectSlice(meta.subjectId, { materials: true }),
+            ]);
+          },
           { title: "資料の再同期に失敗しました。" },
         );
         handleKnownError(error, "資料は既に削除されています。");
@@ -2154,10 +2292,13 @@ function App() {
       if (error?.code === "STALE_DRAFT") {
         dropAttendanceFromVisibleCaches(record);
         runDeferredRefresh(
-          () => Promise.all([
-            refreshDashboard(currentTermKey),
-            refreshSelectedSubjectSlice(record.subjectId, { attendance: true }),
-          ]),
+          async () => {
+            await runBestEffortStaleDeleteRecount(record.subjectId, { attendance: true });
+            await Promise.all([
+              refreshDashboard(currentTermKey),
+              refreshSelectedSubjectSlice(record.subjectId, { attendance: true }),
+            ]);
+          },
           { title: "出席記録の再同期に失敗しました。" },
         );
         handleKnownError(error, "出席記録は既に削除されています。");
@@ -2231,12 +2372,15 @@ function App() {
       if (error?.code === "STALE_DRAFT") {
         dropTodoFromVisibleCaches(todo);
         runDeferredRefresh(
-          () => Promise.all([
-            refreshDashboard(currentTermKey),
-            refreshTimetable(currentTermKey),
-            refreshTodosPage(currentTermKey),
-            refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
-          ]),
+          async () => {
+            await runBestEffortStaleDeleteRecount(todo.subjectId, { todos: true, termKey: currentTermKey });
+            await Promise.all([
+              refreshDashboard(currentTermKey),
+              refreshTimetable(currentTermKey),
+              refreshTodosPage(currentTermKey),
+              refreshSelectedSubjectSlice(todo.subjectId, { todos: true }),
+            ]);
+          },
           { title: "ToDo の再同期に失敗しました。" },
         );
         handleKnownError(error, "ToDo は既に削除されています。");
@@ -2255,23 +2399,22 @@ function App() {
     const selectedSubjectIdSnapshot = selectedSubjectId;
     try {
       const shouldRefreshSelectedSubject = Boolean(selectedSubjectIdSnapshot) && draft.currentTermKey.trim() === currentTermKey;
-      await withBusy(() =>
+      const savedSettings = await withBusy(() =>
         saveSettingsBundle({
           draftSettings: draft,
           draftPeriods: draft.periods,
           periodsLoadedForTermKey,
         }),
       );
-      const nextSettings = await getSettings();
-      setSettings(nextSettings);
+      setSettings(savedSettings);
       pushToast({ tone: "success", title: "設定を保存しました。" });
       runDeferredRefresh(
         async () => {
           await Promise.all([
-            refreshDashboard(nextSettings.currentTermKey),
-            refreshTimetable(nextSettings.currentTermKey),
-            refreshLibrary(nextSettings.currentTermKey),
-            refreshTodosPage(nextSettings.currentTermKey),
+            refreshDashboard(savedSettings.currentTermKey),
+            refreshTimetable(savedSettings.currentTermKey),
+            refreshLibrary(savedSettings.currentTermKey),
+            refreshTodosPage(savedSettings.currentTermKey),
           ]);
           if (shouldRefreshSelectedSubject) {
             await refreshSelectedSubjectSlice(selectedSubjectIdSnapshot);

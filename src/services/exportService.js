@@ -1,16 +1,8 @@
+import JSZip from "jszip";
 import { getDb } from "../db/schema";
 import { getMaterialFile } from "./materialFileStore";
 import { todayIso, triggerDownload } from "../lib/utils";
 import { buildMaterialArchivePath, createBackupManifest } from "./backupManifest";
-
-let jsZipConstructorPromise = null;
-
-async function loadJsZipConstructor() {
-  if (!jsZipConstructorPromise) {
-    jsZipConstructorPromise = import("jszip").then((module) => module.default);
-  }
-  return jsZipConstructorPromise;
-}
 
 async function collectExportSnapshot() {
   const db = await getDb();
@@ -40,7 +32,6 @@ async function collectExportSnapshot() {
 }
 
 async function buildZip(snapshot, fileEntries = [], artifact = {}) {
-  const JSZip = await loadJsZipConstructor();
   const zip = new JSZip();
   const manifest = createBackupManifest(snapshot, fileEntries, artifact);
 

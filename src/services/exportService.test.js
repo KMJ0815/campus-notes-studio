@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
 import { ensureSeedData, deleteAppDb, getDb, resetDbConnection } from "../db/schema";
 import { prepareExport } from "./exportService";
@@ -148,5 +148,15 @@ describe("exportService", () => {
       includesMaterialFiles: true,
       hasMissingMaterialFiles: true,
     });
+  });
+
+  it("prepares exports while offline", async () => {
+    const onlineSpy = vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
+
+    const result = await prepareExport({ includeFilesOverride: false });
+
+    expect(result.status).toBe("ready");
+    expect(result.blob).toBeTruthy();
+    onlineSpy.mockRestore();
   });
 });

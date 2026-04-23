@@ -366,6 +366,25 @@ vi.mock("./features/subjects/SubjectFormModal", () => ({
         >
           save-subject-with-slot
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            const weekdayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+            const todayWeekday = weekdayKeys[new Date().getDay()];
+            void onSave({
+              ...initialValue,
+              name: `${initialValue?.name || "授業"} 改`,
+              termKey: initialValue?.termKey || "2026-spring",
+              teacherName: initialValue?.teacherName || "",
+              room: initialValue?.room || "",
+              color: initialValue?.color || "#4f46e5",
+              memo: initialValue?.memo || "",
+              selectedSlotKeys: [`${todayWeekday}-1`],
+            }).then(() => onClose()).catch(() => undefined);
+          }}
+        >
+          save-subject-with-today-slot
+        </button>
       </div>
     ) : null
   ),
@@ -402,7 +421,7 @@ vi.mock("./features/materials/MaterialNoteModal", () => ({
 }));
 
 vi.mock("./features/settings/SettingsModal", () => ({
-  SettingsModal: ({ initialSettings, initialTermEditorState, onImportApplied, onSave, open }) => (
+  SettingsModal: ({ initialSettings, initialTermEditorState, onClose, onImportApplied, onSave, open }) => (
     open ? (
       <div data-testid="settings-modal">
         <button type="button" onClick={() => onImportApplied({ warnings: [{ code: "MISSING_MATERIAL_FILE", materialId: "material-1" }] })}>
@@ -420,7 +439,7 @@ vi.mock("./features/settings/SettingsModal", () => ({
                 baseUpdatedAt: initialSettings?.updatedAt || "2026-04-20T09:00:00.000Z",
               },
               periodsLoadedForTermKey: initialTermEditorState?.termKey || initialSettings?.currentTermKey || "2026-spring",
-            }).catch(() => undefined);
+            }).then(() => onClose?.()).catch(() => undefined);
           }}
         >
           save-settings
@@ -453,22 +472,28 @@ vi.mock("./db/repositories/subjects", () => ({
 }));
 
 vi.mock("./db/repositories/notes", () => ({
+  countNotesBySubject: vi.fn(),
   deleteNote: vi.fn(),
   saveNote: vi.fn(),
 }));
 
 vi.mock("./db/repositories/attendance", () => ({
+  countAttendanceBySubject: vi.fn(),
   deleteAttendance: vi.fn(),
   getAttendanceSlotOptions: vi.fn(),
   saveAttendance: vi.fn(),
 }));
 
 vi.mock("./db/repositories/todos", () => ({
+  countDoneTodosBySubject: vi.fn(),
+  countOpenTodosBySubject: vi.fn(),
+  countOpenTodosByTerm: vi.fn(),
   deleteTodo: vi.fn(),
   saveTodo: vi.fn(),
 }));
 
 vi.mock("./db/repositories/materials", () => ({
+  countMaterialsBySubject: vi.fn(),
   deleteMaterial: vi.fn(),
   openMaterial: vi.fn(),
   saveMaterialsBatch: vi.fn(),
@@ -498,12 +523,19 @@ vi.mock("./services/materialFileStore", () => ({
 
 import App from "./App";
 import { ensureSeedData, deleteAppDb, resetDbConnection } from "./db/schema";
-import { deleteAttendance, saveAttendance } from "./db/repositories/attendance";
-import { deleteNote, saveNote } from "./db/repositories/notes";
+import { createAppError } from "./lib/errors";
+import { countAttendanceBySubject, deleteAttendance, saveAttendance } from "./db/repositories/attendance";
+import { countNotesBySubject, deleteNote, saveNote } from "./db/repositories/notes";
 import { getSettings, loadTermEditorState, saveSettingsBundle } from "./db/repositories/settings";
 import { archiveSubject, restoreSubject, saveSubject } from "./db/repositories/subjects";
-import { deleteTodo, saveTodo } from "./db/repositories/todos";
-import { deleteMaterial, saveMaterialsBatch, updateMaterialNote } from "./db/repositories/materials";
+import {
+  countDoneTodosBySubject,
+  countOpenTodosBySubject,
+  countOpenTodosByTerm,
+  deleteTodo,
+  saveTodo,
+} from "./db/repositories/todos";
+import { countMaterialsBySubject, deleteMaterial, saveMaterialsBatch, updateMaterialNote } from "./db/repositories/materials";
 import {
   loadDashboardSummary,
   loadLibrarySubjects,
@@ -521,6 +553,7 @@ const settings = {
   currentTermKey: "2026-spring",
   termLabel: "2026年度 春学期",
   exportIncludeFiles: true,
+  updatedAt: "2026-04-20T09:00:00.000Z",
 };
 
 beforeEach(() => {
@@ -537,10 +570,16 @@ beforeEach(() => {
   restoreSubject.mockReset();
   saveSubject.mockReset();
   deleteAttendance.mockReset();
+  countAttendanceBySubject.mockReset();
   saveAttendance.mockReset();
+  countNotesBySubject.mockReset();
   deleteNote.mockReset();
   saveNote.mockReset();
+  countMaterialsBySubject.mockReset();
   deleteMaterial.mockReset();
+  countDoneTodosBySubject.mockReset();
+  countOpenTodosBySubject.mockReset();
+  countOpenTodosByTerm.mockReset();
   deleteTodo.mockReset();
   saveMaterialsBatch.mockReset();
   updateMaterialNote.mockReset();
@@ -554,7 +593,7 @@ beforeEach(() => {
   saveTodo.mockReset();
 
   getSettings.mockResolvedValue(settings);
-  saveSettingsBundle.mockResolvedValue(undefined);
+  saveSettingsBundle.mockResolvedValue(settings);
   loadTermEditorState.mockResolvedValue({
     termKey: "2026-spring",
     label: "2026年度 春学期",
@@ -590,6 +629,12 @@ beforeEach(() => {
     doneTodos: [],
   });
   clearMaterialFileStorage.mockResolvedValue(undefined);
+  countAttendanceBySubject.mockResolvedValue(0);
+  countNotesBySubject.mockResolvedValue(0);
+  countMaterialsBySubject.mockResolvedValue(0);
+  countDoneTodosBySubject.mockResolvedValue(0);
+  countOpenTodosBySubject.mockResolvedValue(0);
+  countOpenTodosByTerm.mockResolvedValue(0);
   archiveSubject.mockImplementation(async (subjectId) => ({
     ...buildSubject(subjectId, "統計学"),
     isArchived: true,
@@ -634,6 +679,11 @@ function createDeferred() {
     resolve = resolver;
   });
   return { promise, resolve };
+}
+
+function todayWeekdayKey() {
+  const weekdayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+  return weekdayKeys[new Date().getDay()];
 }
 
 function buildSubject(id, name, color = "#4f46e5") {
@@ -1289,7 +1339,7 @@ describe("App bootstrap errors", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "go-dashboard" }));
-    expect(screen.getByText("dashboard-stats-1-2-1-1-1")).not.toBeNull();
+    expect(screen.getByText("dashboard-stats-1-1-0-0-1")).not.toBeNull();
     expect(screen.getByText("dashboard-recent-notes-note-1")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
@@ -2449,6 +2499,104 @@ describe("App bootstrap errors", () => {
     confirmSpy.mockRestore();
   });
 
+  it("prefers repository status when deleting todos even if cached status is stale", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const subjectOne = buildSubject("subject-1", "統計学");
+    const deletedTodo = buildSavedTodo({
+      id: "todo-1",
+      subjectId: "subject-1",
+      status: "open",
+      dueDate: "2026-04-21",
+    });
+
+    deleteTodo.mockResolvedValueOnce(deletedTodo);
+    loadDashboardSummary
+      .mockResolvedValueOnce({
+        activeSubjectsCount: 1,
+        notesCount: 0,
+        materialsCount: 0,
+        attendanceCount: 0,
+        openTodosCount: 1,
+        todayClasses: [],
+        recentNotes: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadTimetable
+      .mockResolvedValueOnce({
+        periods: [],
+        slots: [
+          {
+            slot: { id: "slot-1", weekday: "mon", periodNo: 1, activeSlotKey: "2026-spring:mon:1" },
+            subject: subjectOne,
+            openTodoCount: 1,
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadSubjectHeader.mockResolvedValue({
+      subject: subjectOne,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 1,
+      doneTodosCount: 1,
+    });
+    loadSubjectTodos.mockResolvedValue([
+      {
+        id: "todo-1",
+        subjectId: "subject-1",
+        title: "課題",
+        memo: "",
+        dueDate: "2026-04-21",
+        status: "done",
+        completedAt: "2026-04-19T10:00:00.000Z",
+        updatedAt: "2026-04-19T10:00:00.000Z",
+      },
+    ]);
+    loadTodosPageData.mockResolvedValue({
+      openTodos: [],
+      doneTodos: [
+        {
+          id: "todo-1",
+          subjectId: "subject-1",
+          subject: subjectOne,
+          title: "課題",
+          status: "done",
+        },
+      ],
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "select-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("timetable-open-todo-counts-1")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "delete-todo" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("todo-delete-resolved-deleted")).not.toBeNull();
+      expect(screen.getByText("timetable-open-todo-counts-0")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-dashboard" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-stats-1-0-0-0-0")).not.toBeNull();
+    });
+
+    confirmSpy.mockRestore();
+  });
+
   it("refreshes standalone todo subject names after a subject rename", async () => {
     const subjectOld = buildSubject("subject-1", "統計学");
     const subjectNew = buildSubject("subject-1", "統計学 改");
@@ -2792,11 +2940,308 @@ describe("App bootstrap errors", () => {
     });
   });
 
-  it("keeps note counts stable during stale delete recovery", async () => {
+  it("updates dashboard today classes immediately when a subject gains today's slot", async () => {
+    const subject = buildSubject("subject-1", "統計学");
+    const period = { periodNo: 1, label: "1限", startTime: "", endTime: "" };
+
+    loadDashboardSummary
+      .mockResolvedValueOnce({
+        activeSubjectsCount: 1,
+        notesCount: 0,
+        materialsCount: 0,
+        attendanceCount: 0,
+        openTodosCount: 0,
+        todayClasses: [],
+        recentNotes: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadLibrarySubjects
+      .mockResolvedValueOnce({
+        periods: [period],
+        activeSubjects: [{ ...subject, slots: [] }],
+        archivedSubjects: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadTimetable
+      .mockResolvedValueOnce({
+        periods: [period],
+        slots: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    saveSubject.mockResolvedValueOnce({
+      ...subject,
+      updatedAt: "2026-04-21T09:00:00.000Z",
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-library" }));
+    fireEvent.click(screen.getByRole("button", { name: "edit-library-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subject-modal")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "save-subject-with-today-slot" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("subject-modal")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-dashboard" }));
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-today-subject-1")).not.toBeNull();
+    });
+  });
+
+  it("removes displaced subjects from dashboard today classes on overwrite conflict", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const today = todayWeekdayKey();
+    const period = { periodNo: 1, label: "1限", startTime: "", endTime: "" };
+    const subjectOne = buildSubject("subject-1", "統計学");
+    const subjectTwo = buildSubject("subject-2", "解析学");
+    const occupiedSlot = {
+      id: "slot-2",
+      termKey: "2026-spring",
+      subjectId: "subject-2",
+      weekday: today,
+      periodNo: 1,
+      activeSlotKey: `2026-spring:${today}:1`,
+    };
+
+    loadDashboardSummary
+      .mockResolvedValueOnce({
+        activeSubjectsCount: 2,
+        notesCount: 0,
+        materialsCount: 0,
+        attendanceCount: 0,
+        openTodosCount: 0,
+        todayClasses: [{ slot: occupiedSlot, subject: subjectTwo, period }],
+        recentNotes: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadLibrarySubjects
+      .mockResolvedValueOnce({
+        periods: [period],
+        activeSubjects: [
+          { ...subjectOne, slots: [] },
+          { ...subjectTwo, slots: [occupiedSlot] },
+        ],
+        archivedSubjects: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadTimetable
+      .mockResolvedValueOnce({
+        periods: [period],
+        slots: [{ slot: occupiedSlot, subject: subjectTwo, openTodoCount: 0 }],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    saveSubject
+      .mockRejectedValueOnce(createAppError("SLOT_CONFLICT", "conflict", {
+        conflicts: [{
+          subjectId: "subject-2",
+          subjectName: "解析学",
+          weekday: today,
+          periodNo: 1,
+          willBecomeSlotless: true,
+        }],
+      }))
+      .mockResolvedValueOnce({
+        ...subjectOne,
+        updatedAt: "2026-04-21T09:00:00.000Z",
+      });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-library" }));
+    fireEvent.click(screen.getByRole("button", { name: "edit-library-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subject-modal")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "save-subject-with-today-slot" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("subject-modal")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-dashboard" }));
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-today-subject-1")).not.toBeNull();
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("keeps restore counts aligned when header succeeds but list loaders fail", async () => {
+    const today = todayWeekdayKey();
+    const period = { periodNo: 1, label: "1限", startTime: "", endTime: "" };
+    const slot = { id: "slot-1", termKey: "2026-spring", subjectId: "subject-1", weekday: today, periodNo: 1, activeSlotKey: `2026-spring:${today}:1` };
+    const archivedSubject = {
+      ...buildSubject("subject-1", "統計学"),
+      isArchived: true,
+      updatedAt: "2026-04-19T09:00:00.000Z",
+      slots: [slot],
+    };
+    const restoredSubject = {
+      ...archivedSubject,
+      isArchived: false,
+      updatedAt: "2026-04-19T10:00:00.000Z",
+    };
+
+    loadDashboardSummary
+      .mockResolvedValueOnce({
+        activeSubjectsCount: 0,
+        notesCount: 0,
+        materialsCount: 0,
+        attendanceCount: 0,
+        openTodosCount: 0,
+        todayClasses: [],
+        recentNotes: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadLibrarySubjects
+      .mockResolvedValueOnce({
+        periods: [period],
+        activeSubjects: [],
+        archivedSubjects: [archivedSubject],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadTimetable
+      .mockResolvedValueOnce({
+        periods: [period],
+        slots: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    loadTodosPageData
+      .mockResolvedValueOnce({ openTodos: [], doneTodos: [] })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    restoreSubject.mockResolvedValueOnce({
+      restoredSlotCount: 1,
+      restoredSlots: [slot],
+      subject: restoredSubject,
+    });
+    loadSubjectHeader.mockResolvedValueOnce({
+      subject: restoredSubject,
+      periods: [period],
+      slots: [slot],
+      notesCount: 3,
+      materialsCount: 2,
+      attendanceCount: 2,
+      openTodosCount: 4,
+      doneTodosCount: 1,
+    });
+    loadSubjectNotes.mockRejectedValueOnce(new Error("notes failed"));
+    loadSubjectMaterials.mockRejectedValueOnce(new Error("materials failed"));
+    loadSubjectAttendance.mockRejectedValueOnce(new Error("attendance failed"));
+    loadSubjectTodos.mockRejectedValueOnce(new Error("todos failed"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-library" }));
+    fireEvent.click(screen.getByRole("button", { name: "restore-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("library-active-subject-1")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-dashboard" }));
+    expect(screen.getByText("dashboard-stats-1-0-0-0-0")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "go-todos" }));
+    expect(screen.getByText("todos-page-open-none")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    expect(screen.getByText("timetable-open-todo-by-subject-subject-1:0")).not.toBeNull();
+  });
+
+  it("closes settings modal after write success without a post-write getSettings read", async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-timetable" }));
+    fireEvent.click(screen.getByRole("button", { name: "open-settings" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-modal")).not.toBeNull();
+    });
+
+    getSettings.mockRejectedValueOnce(new Error("unexpected post-write read"));
+    fireEvent.click(screen.getByRole("button", { name: "save-settings" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("settings-modal")).toBeNull();
+    });
+  });
+
+  it("closes subject modal without waiting for post-write hydration reads", async () => {
+    const deferredHeader = createDeferred();
+    const subject = buildSubject("subject-1", "統計学");
+
+    loadLibrarySubjects.mockResolvedValue({
+      periods: [],
+      activeSubjects: [{ ...subject, slots: [] }],
+      archivedSubjects: [],
+    });
+    saveSubject.mockResolvedValue({
+      ...subject,
+      updatedAt: "2026-04-21T09:00:00.000Z",
+    });
+    loadSubjectHeader.mockImplementation(() => deferredHeader.promise);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-loaded")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "go-library" }));
+    fireEvent.click(screen.getByRole("button", { name: "edit-library-subject-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subject-modal")).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "save-subject" }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("subject-modal")).toBeNull();
+    });
+
+    deferredHeader.resolve({
+      subject,
+      periods: [],
+      slots: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+      openTodosCount: 0,
+      doneTodosCount: 0,
+    });
+  });
+
+  it("recounts note aggregates during stale delete recovery even when refresh fails", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const subject = buildSubject("subject-1", "統計学");
 
     deleteNote.mockRejectedValueOnce(Object.assign(new Error("stale"), { code: "STALE_DRAFT" }));
+    countNotesBySubject.mockResolvedValueOnce(0);
     loadDashboardSummary
       .mockResolvedValueOnce({
         activeSubjectsCount: 1,
@@ -2855,23 +3300,25 @@ describe("App bootstrap errors", () => {
     await waitFor(() => {
       expect(screen.getByText("note-delete-resolved")).not.toBeNull();
       expect(screen.getByText("detail-items-none")).not.toBeNull();
-      expect(screen.getByText("subject-header-counts-1-0-0-0-0")).not.toBeNull();
+      expect(screen.getByText("subject-header-counts-0-0-0-0-0")).not.toBeNull();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "go-dashboard" }));
     await waitFor(() => {
-      expect(screen.getByText("dashboard-stats-1-1-0-0-0")).not.toBeNull();
+      expect(screen.getByText("dashboard-stats-1-0-0-0-0")).not.toBeNull();
     });
 
     confirmSpy.mockRestore();
   });
 
-  it("keeps material and attendance counts stable during stale delete recovery", async () => {
+  it("recounts material and attendance aggregates during stale delete recovery even when refresh fails", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const subject = buildSubject("subject-1", "統計学");
 
     deleteMaterial.mockRejectedValueOnce(Object.assign(new Error("stale"), { code: "STALE_DRAFT" }));
     deleteAttendance.mockRejectedValueOnce(Object.assign(new Error("stale"), { code: "STALE_DRAFT" }));
+    countMaterialsBySubject.mockResolvedValueOnce(0);
+    countAttendanceBySubject.mockResolvedValueOnce(0);
     loadDashboardSummary
       .mockResolvedValueOnce({
         activeSubjectsCount: 1,
@@ -2951,7 +3398,7 @@ describe("App bootstrap errors", () => {
     await waitFor(() => {
       expect(screen.getByText("material-delete-resolved")).not.toBeNull();
       expect(screen.getByText("detail-items-none")).not.toBeNull();
-      expect(screen.getByText("subject-header-counts-0-1-1-0-0")).not.toBeNull();
+      expect(screen.getByText("subject-header-counts-0-0-1-0-0")).not.toBeNull();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "tab-attendance" }));
@@ -2960,22 +3407,25 @@ describe("App bootstrap errors", () => {
     await waitFor(() => {
       expect(screen.getByText("attendance-delete-resolved")).not.toBeNull();
       expect(screen.getByText("detail-items-none")).not.toBeNull();
-      expect(screen.getByText("subject-header-counts-0-1-1-0-0")).not.toBeNull();
+      expect(screen.getByText("subject-header-counts-0-0-0-0-0")).not.toBeNull();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "go-dashboard" }));
     await waitFor(() => {
-      expect(screen.getByText("dashboard-stats-1-0-1-1-0")).not.toBeNull();
+      expect(screen.getByText("dashboard-stats-1-0-0-0-0")).not.toBeNull();
     });
 
     confirmSpy.mockRestore();
   });
 
-  it("keeps todo counts stable during stale delete recovery", async () => {
+  it("recounts todo aggregates during stale delete recovery even when refresh fails", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const subject = buildSubject("subject-1", "統計学");
 
     deleteTodo.mockRejectedValueOnce(Object.assign(new Error("stale"), { code: "STALE_DRAFT" }));
+    countOpenTodosBySubject.mockResolvedValueOnce(0);
+    countDoneTodosBySubject.mockResolvedValueOnce(0);
+    countOpenTodosByTerm.mockResolvedValueOnce(0);
     loadDashboardSummary
       .mockResolvedValueOnce({
         activeSubjectsCount: 1,
@@ -3046,13 +3496,13 @@ describe("App bootstrap errors", () => {
     await waitFor(() => {
       expect(screen.getByText("todo-delete-resolved-stale")).not.toBeNull();
       expect(screen.getByText("detail-items-none")).not.toBeNull();
-      expect(screen.getByText("subject-header-counts-0-0-0-1-0")).not.toBeNull();
-      expect(screen.getByText("timetable-open-todo-by-subject-subject-1:1")).not.toBeNull();
+      expect(screen.getByText("subject-header-counts-0-0-0-0-0")).not.toBeNull();
+      expect(screen.getByText("timetable-open-todo-by-subject-subject-1:0")).not.toBeNull();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "go-dashboard" }));
     await waitFor(() => {
-      expect(screen.getByText("dashboard-stats-1-0-0-0-1")).not.toBeNull();
+      expect(screen.getByText("dashboard-stats-1-0-0-0-0")).not.toBeNull();
     });
 
     confirmSpy.mockRestore();

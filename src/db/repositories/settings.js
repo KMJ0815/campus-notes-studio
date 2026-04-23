@@ -51,22 +51,25 @@ export async function saveSettingsBundle({
   const nextLabel = draftSettings.termLabel.trim() || suggestedTermLabel(targetTermKey);
 
   await savePeriodDefinitionsInTransaction(tx, targetTermKey, draftPeriods);
+  const termMetaUpdatedAt = nowIso();
   await termMetaStore.put({
     ...(existingTermMeta || {}),
     termKey: targetTermKey,
     label: nextLabel,
-    updatedAt: nowIso(),
+    updatedAt: termMetaUpdatedAt,
   });
 
-  await settingsStore.put({
+  const settingsUpdatedAt = nowIso();
+  const savedSettings = {
     ...(existingSettings || { id: SETTINGS_ID }),
     id: SETTINGS_ID,
     currentTermKey: targetTermKey,
     termLabel: nextLabel,
     exportIncludeFiles: Boolean(draftSettings.exportIncludeFiles),
-    updatedAt: nowIso(),
-  });
+    updatedAt: settingsUpdatedAt,
+  };
+  await settingsStore.put(savedSettings);
 
   await tx.done;
-  return getSettings();
+  return savedSettings;
 }

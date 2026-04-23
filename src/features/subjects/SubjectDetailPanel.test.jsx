@@ -1287,6 +1287,231 @@ describe("SubjectDetailPanel", () => {
     expect(screen.getByRole("button", { name: "完了にする" }).disabled).toBe(false);
   });
 
+  it("prevents duplicate note deletes while a note delete is pending", async () => {
+    const deferred = createDeferred();
+    const onDeleteNote = vi.fn().mockImplementation(() => deferred.promise);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 1,
+          materialsCount: 0,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.notes}
+        tabLoading={false}
+        notes={[
+          {
+            id: "note-1",
+            subjectId: "subject-1",
+            title: "第1回",
+            bodyText: "本文",
+            lectureDate: "2026-04-18",
+            updatedAt: "2026-04-18T09:00:00.000Z",
+          },
+        ]}
+        materials={[]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={onDeleteNote}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    const deleteButton = screen.getByRole("button", { name: "ノートを削除" });
+    fireEvent.click(deleteButton);
+    fireEvent.click(deleteButton);
+
+    expect(onDeleteNote).toHaveBeenCalledTimes(1);
+    expect(deleteButton.disabled).toBe(true);
+
+    deferred.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(screen.getByRole("button", { name: "ノートを削除" }).disabled).toBe(false);
+  });
+
+  it("prevents duplicate material deletes while a material delete is pending", async () => {
+    const deferred = createDeferred();
+    const onDeleteMaterial = vi.fn().mockImplementation(() => deferred.promise);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [],
+          notesCount: 0,
+          materialsCount: 1,
+          attendanceCount: 0,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.materials}
+        tabLoading={false}
+        notes={[]}
+        materials={[
+          {
+            id: "material-1",
+            subjectId: "subject-1",
+            displayName: "slide.pdf",
+            sizeBytes: 1024,
+            mimeType: "application/pdf",
+            fileExt: "pdf",
+            note: "",
+            createdAt: "2026-04-18T09:00:00.000Z",
+            updatedAt: "2026-04-18T09:00:00.000Z",
+          },
+        ]}
+        attendance={[]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={onDeleteMaterial}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={vi.fn()}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    const deleteButton = screen.getByRole("button", { name: "資料を削除" });
+    fireEvent.click(deleteButton);
+    fireEvent.click(deleteButton);
+
+    expect(onDeleteMaterial).toHaveBeenCalledTimes(1);
+    expect(deleteButton.disabled).toBe(true);
+
+    deferred.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(screen.getByRole("button", { name: "資料を削除" }).disabled).toBe(false);
+  });
+
+  it("prevents duplicate attendance deletes while an attendance delete is pending", async () => {
+    const deferred = createDeferred();
+    const onDeleteAttendance = vi.fn().mockImplementation(() => deferred.promise);
+
+    render(
+      <SubjectDetailPanel
+        header={{
+          subject: {
+            id: "subject-1",
+            name: "統計学",
+            teacherName: "山田",
+            room: "301",
+            color: "#4f46e5",
+            isArchived: false,
+            memo: "",
+          },
+          slots: [],
+          periods: [{ periodNo: 1, label: "1限", startTime: "09:00", endTime: "10:40" }],
+          notesCount: 0,
+          materialsCount: 0,
+          attendanceCount: 1,
+          openTodosCount: 0,
+          doneTodosCount: 0,
+        }}
+        detailTab={DETAIL_TABS.attendance}
+        tabLoading={false}
+        notes={[]}
+        materials={[]}
+        attendance={[
+          {
+            id: "attendance-1",
+            subjectId: "subject-1",
+            lectureDate: "2026-04-18",
+            timetableSlotId: "",
+            slotSnapshot: null,
+            slotLabel: "",
+            status: "present",
+            memo: "",
+            updatedAt: "2026-04-18T09:00:00.000Z",
+          },
+        ]}
+        todos={[]}
+        onChangeTab={vi.fn()}
+        onEditSubject={vi.fn()}
+        onArchiveSubject={vi.fn()}
+        onCreateNote={vi.fn()}
+        onEditNote={vi.fn()}
+        onDeleteNote={vi.fn()}
+        onUploadMaterials={vi.fn()}
+        onOpenMaterial={vi.fn()}
+        onEditMaterial={vi.fn()}
+        onDeleteMaterial={vi.fn()}
+        onMaterialPickerError={vi.fn()}
+        onMaterialPickerOpen={vi.fn()}
+        onSaveAttendance={vi.fn()}
+        onDeleteAttendance={onDeleteAttendance}
+        loadAttendanceSlotOptions={vi.fn().mockResolvedValue([])}
+        onSaveTodo={vi.fn()}
+        onDeleteTodo={vi.fn()}
+      />,
+    );
+
+    const deleteButton = screen.getByRole("button", { name: "出席を削除" });
+    fireEvent.click(deleteButton);
+    fireEvent.click(deleteButton);
+
+    expect(onDeleteAttendance).toHaveBeenCalledTimes(1);
+    expect(deleteButton.disabled).toBe(true);
+
+    deferred.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(screen.getByRole("button", { name: "出席を削除" }).disabled).toBe(false);
+  });
+
   it("keeps the attendance draft intact when save fails", async () => {
     const onSaveAttendance = vi.fn().mockRejectedValue(Object.assign(new Error("stale"), { code: "STALE_UPDATE" }));
 

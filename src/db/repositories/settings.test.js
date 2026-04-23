@@ -185,4 +185,25 @@ describe("settings repository", () => {
       }),
     ).rejects.toMatchObject({ code: "STALE_UPDATE" });
   });
+
+  it("returns the saved settings snapshot on successful writes", async () => {
+    const periods = await loadPeriodDefinitions("2026-spring");
+
+    const result = await saveSettingsBundle({
+      draftSettings: settingsDraft("2026-spring", "2026年度 春学期"),
+      draftPeriods: periods,
+      periodsLoadedForTermKey: "2026-spring",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "app-settings",
+        currentTermKey: "2026-spring",
+        termLabel: "2026年度 春学期",
+        exportIncludeFiles: true,
+      }),
+    );
+    expect(typeof result.updatedAt).toBe("string");
+    expect(result.updatedAt.length).toBeGreaterThan(0);
+  });
 });
