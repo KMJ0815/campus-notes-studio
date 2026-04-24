@@ -390,6 +390,7 @@ export function emptyTodoDraft(subjectId, overrides = {}) {
 export function emptyMaterialMetaDraft(meta = {}) {
   return {
     id: meta.id || null,
+    subjectId: meta.subjectId || null,
     note: meta.note || "",
     baseUpdatedAt: meta.updatedAt || null,
   };

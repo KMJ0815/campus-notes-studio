@@ -26,6 +26,7 @@ npm run verify:handoff
 ## Handoff
 
 - 正規の配布成果物は `handoff/campus-notes-studio-source.zip` のみです。
+- Codex / GitHub agent がレビューするときは GitHub `main` を source of truth とし、handoff ZIP はその current tree と一致していることを検証してから添付します。
 - outer wrapper ZIP や手元で作った追加 ZIP は正規成果物として扱いません。
 - `npm run verify:handoff` は `node_modules`, `dist`, `.git`, `__MACOSX` を含む ZIP を失敗させます。
 - `npm run verify:handoff` は source-only であることに加えて、`src`, `public`, `scripts` と主要ファイルの同梱、および current tree との**内容一致**まで確認します。

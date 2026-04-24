@@ -78,6 +78,7 @@ export function SubjectDetailPanel({
   onDeleteTodo = async () => {},
 }) {
   const fileInputRef = useRef(null);
+  const materialPickerSubjectIdRef = useRef(null);
   const [attendanceDraft, setAttendanceDraft] = useState(null);
   const [attendanceSlotOptions, setAttendanceSlotOptions] = useState([]);
   const [attendanceSlotOptionsReady, setAttendanceSlotOptionsReady] = useState(false);
@@ -269,6 +270,7 @@ export function SubjectDetailPanel({
   }, [attendance]);
 
   const openMaterialPicker = useCallback(() => {
+    materialPickerSubjectIdRef.current = header?.subject?.id || null;
     const input = fileInputRef.current;
     if (!input) {
       onMaterialPickerError?.();
@@ -291,7 +293,7 @@ export function SubjectDetailPanel({
         onMaterialPickerError?.();
       }
     }
-  }, [onMaterialPickerError, onMaterialPickerOpen]);
+  }, [header?.subject?.id, onMaterialPickerError, onMaterialPickerOpen]);
 
   function startEditAttendance(record) {
     setAttendanceDateTouched(false);
@@ -674,8 +676,9 @@ export function SubjectDetailPanel({
                 aria-hidden="true"
                 tabIndex={-1}
                 onChange={(event) => {
-                  onUploadMaterials(Array.from(event.target.files || []));
+                  onUploadMaterials(materialPickerSubjectIdRef.current || header?.subject?.id || null, Array.from(event.target.files || []));
                   event.target.value = "";
+                  materialPickerSubjectIdRef.current = null;
                 }}
               />
               <IconButton icon={Plus} onClick={openMaterialPicker}>

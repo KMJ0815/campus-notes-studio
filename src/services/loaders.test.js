@@ -12,7 +12,7 @@ import { ensureSeedData, deleteAppDb, getDb, resetDbConnection } from "../db/sch
 import { archiveSubject, saveSubject } from "../db/repositories/subjects";
 import { saveTodo } from "../db/repositories/todos";
 import { loadSubjectNotes } from "../db/repositories/notes";
-import { loadDashboardSummary, loadSubjectHeader, loadTodosPageData } from "./loaders";
+import { loadDashboardAggregateCounts, loadDashboardSummary, loadSubjectHeader, loadTodosPageData } from "./loaders";
 
 describe("loaders", () => {
   beforeEach(async () => {
@@ -118,6 +118,16 @@ describe("loaders", () => {
     expect(getAllSpy).not.toHaveBeenCalledWith("notes");
     expect(getAllSpy).not.toHaveBeenCalledWith("material_meta");
     expect(getAllSpy).not.toHaveBeenCalledWith("attendance");
+
+    await archiveSubject(subjectB.id);
+    const aggregateCounts = await loadDashboardAggregateCounts("2026-spring");
+
+    expect(aggregateCounts).toEqual({
+      notesCount: 1,
+      materialsCount: 1,
+      attendanceCount: 0,
+      openTodosCount: 1,
+    });
   });
 
   it("builds normalized dashboard preview text for recent notes", async () => {

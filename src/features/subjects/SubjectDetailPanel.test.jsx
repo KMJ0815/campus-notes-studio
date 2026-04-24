@@ -667,6 +667,82 @@ describe("SubjectDetailPanel", () => {
     expect(onMaterialPickerOpen).toHaveBeenCalled();
   });
 
+  it("uploads materials to the subject that opened the file picker", () => {
+    const onUploadMaterials = vi.fn();
+    const showPicker = vi.fn();
+    Object.defineProperty(HTMLInputElement.prototype, "showPicker", {
+      configurable: true,
+      value: showPicker,
+    });
+    const baseHeader = {
+      subject: {
+        id: "subject-1",
+        name: "統計学",
+        teacherName: "山田",
+        room: "301",
+        color: "#4f46e5",
+        isArchived: false,
+        memo: "",
+      },
+      slots: [],
+      periods: [],
+      notesCount: 0,
+      materialsCount: 0,
+      attendanceCount: 0,
+    };
+    const props = {
+      detailTab: DETAIL_TABS.materials,
+      tabLoading: false,
+      notes: [],
+      materials: [],
+      attendance: [],
+      onChangeTab: vi.fn(),
+      onEditSubject: vi.fn(),
+      onArchiveSubject: vi.fn(),
+      onCreateNote: vi.fn(),
+      onEditNote: vi.fn(),
+      onDeleteNote: vi.fn(),
+      onUploadMaterials,
+      onOpenMaterial: vi.fn(),
+      onEditMaterial: vi.fn(),
+      onDeleteMaterial: vi.fn(),
+      onMaterialPickerError: vi.fn(),
+      onMaterialPickerOpen: vi.fn(),
+      onSaveAttendance: vi.fn(),
+      onDeleteAttendance: vi.fn(),
+      loadAttendanceSlotOptions: vi.fn().mockResolvedValue([]),
+    };
+
+    const { container, rerender } = render(
+      <SubjectDetailPanel
+        {...props}
+        header={baseHeader}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("資料を追加"));
+
+    rerender(
+      <SubjectDetailPanel
+        {...props}
+        header={{
+          ...baseHeader,
+          subject: {
+            ...baseHeader.subject,
+            id: "subject-2",
+            name: "解析学",
+          },
+        }}
+      />,
+    );
+
+    const input = container.querySelector("input[type=\"file\"]");
+    const file = new File(["material"], "slide.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(onUploadMaterials).toHaveBeenCalledWith("subject-1", [file]);
+  });
+
   it("resets the attendance form when the edited record disappears from the list", async () => {
     const props = {
       detailTab: DETAIL_TABS.attendance,

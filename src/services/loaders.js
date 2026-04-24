@@ -139,6 +139,25 @@ export async function loadDashboardSummary(termKey) {
   };
 }
 
+export async function loadDashboardAggregateCounts(termKey) {
+  const subjects = await getSubjectsByTerm(termKey);
+  const activeSubjectIds = new Set(subjects.filter((subject) => !subject.isArchived).map((subject) => subject.id));
+  const db = await getDb();
+  const [notesCount, materialsCount, attendanceCount, openTodosCount] = await Promise.all([
+    countTermRecords(db.transaction("notes").store.index("byTermKey"), IDBKeyRange.only(termKey), activeSubjectIds),
+    countTermRecords(db.transaction("material_meta").store.index("byTermKey"), IDBKeyRange.only(termKey), activeSubjectIds),
+    countTermRecords(db.transaction("attendance").store.index("byTermKey"), IDBKeyRange.only(termKey), activeSubjectIds),
+    countTermRecords(db.transaction("todo_items").store.index("byTermStatus"), IDBKeyRange.only([termKey, "open"]), activeSubjectIds),
+  ]);
+
+  return {
+    notesCount,
+    materialsCount,
+    attendanceCount,
+    openTodosCount,
+  };
+}
+
 export async function loadTimetable(termKey) {
   const [periods, subjects, slots] = await Promise.all([
     loadPeriodDefinitions(termKey),

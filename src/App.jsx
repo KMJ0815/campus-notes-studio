@@ -60,6 +60,7 @@ import {
 } from "./db/repositories/materials";
 import { clearMaterialFileStorage } from "./services/materialFileStore";
 import {
+  loadDashboardAggregateCounts,
   loadDashboardSummary,
   loadLibrarySubjects,
   loadSubjectAttendance,
@@ -699,6 +700,40 @@ function App() {
     }, {});
   }, []);
 
+  const loadRestoredSubjectHydrationBestEffort = useCallback(async (subjectId) => {
+    const hydration = await loadSubjectHydrationBestEffort(subjectId, {
+      header: true,
+      notes: true,
+      materials: true,
+      attendance: true,
+      todos: true,
+    });
+    const failedSlices = ["notes", "materials", "attendance", "todos"].filter((key) => hydration[key] === null);
+    const fallbackEntries = [
+      ["notesCount", hydration.notes, hydration.header?.notesCount, () => countNotesBySubject(subjectId)],
+      ["materialsCount", hydration.materials, hydration.header?.materialsCount, () => countMaterialsBySubject(subjectId)],
+      ["attendanceCount", hydration.attendance, hydration.header?.attendanceCount, () => countAttendanceBySubject(subjectId)],
+      ["openTodosCount", hydration.todos, hydration.header?.openTodosCount, () => countOpenTodosBySubject(subjectId)],
+      ["doneTodosCount", hydration.todos, hydration.header?.doneTodosCount, () => countDoneTodosBySubject(subjectId)],
+    ].filter(([, list]) => !Array.isArray(list));
+
+    if (fallbackEntries.length === 0) return { ...hydration, failedSlices };
+
+    const results = await Promise.allSettled(
+      fallbackEntries.map(([, , headerCount, loader]) => (
+        headerCount !== undefined && headerCount !== null ? Promise.resolve(headerCount) : loader()
+      )),
+    );
+
+    return fallbackEntries.reduce((nextHydration, [key], index) => {
+      const result = results[index];
+      return {
+        ...nextHydration,
+        [key]: result.status === "fulfilled" ? result.value : undefined,
+      };
+    }, { ...hydration, failedSlices });
+  }, [loadSubjectHydrationBestEffort]);
+
   const resolveSubjectScopedSnapshot = useCallback((subjectId, explicit = {}) => {
     const cachedHeader = subjectHeaderCacheRef.current[subjectId] || null;
     const header = explicit.header ?? cachedHeader;
@@ -998,6 +1033,11 @@ function App() {
     materials = null,
     attendance = null,
     todos = null,
+    notesCount = undefined,
+    materialsCount = undefined,
+    attendanceCount = undefined,
+    openTodosCount = undefined,
+    doneTodosCount = undefined,
     restoredSlots = [],
   } = {}) => {
     const restoredSnapshot = resolveSubjectScopedSnapshot(subject.id, {
@@ -1030,20 +1070,31 @@ function App() {
     const hasTodosList = Array.isArray(restoredSnapshot.todos);
     const restoredNotes = hasNotesList ? restoredSnapshot.notes : [];
     const restoredTodos = hasTodosList ? restoredSnapshot.todos : [];
+    const resolvedCounts = {
+      notesCount: hasNotesList ? restoredNotes.length : firstDefined(notesCount, restoredSnapshot.notesCount),
+      materialsCount: hasMaterialsList ? restoredSnapshot.materials.length : firstDefined(materialsCount, restoredSnapshot.materialsCount),
+      attendanceCount: hasAttendanceList ? restoredSnapshot.attendance.length : firstDefined(attendanceCount, restoredSnapshot.attendanceCount),
+      openTodosCount: hasTodosList ? restoredTodos.filter((todo) => todo.status === "open").length : firstDefined(openTodosCount, restoredSnapshot.openTodosCount),
+      doneTodosCount: hasTodosList ? restoredTodos.filter((todo) => todo.status === "done").length : firstDefined(doneTodosCount, restoredSnapshot.doneTodosCount),
+    };
     const counts = {
-      notesCount: hasNotesList ? restoredNotes.length : 0,
-      materialsCount: hasMaterialsList ? restoredSnapshot.materials.length : 0,
-      attendanceCount: hasAttendanceList ? restoredSnapshot.attendance.length : 0,
-      openTodosCount: hasTodosList ? restoredTodos.filter((todo) => todo.status === "open").length : 0,
-      doneTodosCount: hasTodosList ? restoredTodos.filter((todo) => todo.status === "done").length : 0,
+      notesCount: firstDefined(resolvedCounts.notesCount, 0),
+      materialsCount: firstDefined(resolvedCounts.materialsCount, 0),
+      attendanceCount: firstDefined(resolvedCounts.attendanceCount, 0),
+      openTodosCount: firstDefined(resolvedCounts.openTodosCount, 0),
+      doneTodosCount: firstDefined(resolvedCounts.doneTodosCount, 0),
     };
     const nextHeader = {
       ...(subjectHeaderCacheRef.current[subject.id] || {}),
       subject: { ...(subjectHeaderCacheRef.current[subject.id]?.subject || restoredSnapshot.subject || {}), ...subject, isArchived: false },
       periods: restoredSnapshot.periods || currentPeriods,
       slots: hydratedSlots,
-      ...counts,
     };
+    Object.entries(resolvedCounts).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        nextHeader[key] = clampCount(value);
+      }
+    });
     const hydratedOpenTodos = restoredTodos
       .filter((todo) => todo.status === "open")
       .map((todo) => ({ ...todo, subject: restoredSubject }));
@@ -1223,13 +1274,20 @@ function App() {
     attendanceCount = null,
     openTodosCount = null,
     doneTodosCount = null,
+    dashboardNotesCount = null,
+    dashboardMaterialsCount = null,
+    dashboardAttendanceCount = null,
     dashboardOpenTodosCount = null,
   } = {}) => {
     const previousSnapshot = resolveSubjectScopedSnapshot(subjectId);
-    const previousNotesCount = firstDefined(previousSnapshot.notesCount, 0);
-    const previousMaterialsCount = firstDefined(previousSnapshot.materialsCount, 0);
-    const previousAttendanceCount = firstDefined(previousSnapshot.attendanceCount, 0);
-    const previousOpenTodosCount = firstDefined(previousSnapshot.openTodosCount, 0);
+    const hasPreviousNotesCount = previousSnapshot.notesCount !== undefined && previousSnapshot.notesCount !== null;
+    const hasPreviousMaterialsCount = previousSnapshot.materialsCount !== undefined && previousSnapshot.materialsCount !== null;
+    const hasPreviousAttendanceCount = previousSnapshot.attendanceCount !== undefined && previousSnapshot.attendanceCount !== null;
+    const hasPreviousOpenTodosCount = previousSnapshot.openTodosCount !== undefined && previousSnapshot.openTodosCount !== null;
+    const previousNotesCount = hasPreviousNotesCount ? previousSnapshot.notesCount : 0;
+    const previousMaterialsCount = hasPreviousMaterialsCount ? previousSnapshot.materialsCount : 0;
+    const previousAttendanceCount = hasPreviousAttendanceCount ? previousSnapshot.attendanceCount : 0;
+    const previousOpenTodosCount = hasPreviousOpenTodosCount ? previousSnapshot.openTodosCount : 0;
     const previousDoneTodosCount = firstDefined(previousSnapshot.doneTodosCount, 0);
     const nextNotesCount = notesCount === null ? previousNotesCount : notesCount;
     const nextMaterialsCount = materialsCount === null ? previousMaterialsCount : materialsCount;
@@ -1262,14 +1320,29 @@ function App() {
       };
     });
 
-    if (notesCount !== null || materialsCount !== null || attendanceCount !== null || openTodosCount !== null || dashboardOpenTodosCount !== null) {
+    if (
+      notesCount !== null
+      || materialsCount !== null
+      || attendanceCount !== null
+      || openTodosCount !== null
+      || dashboardNotesCount !== null
+      || dashboardMaterialsCount !== null
+      || dashboardAttendanceCount !== null
+      || dashboardOpenTodosCount !== null
+    ) {
       setDashboardSummary((current) => ({
         ...current,
-        notesCount: notesCount === null ? current.notesCount : clampCount(current.notesCount + notesDelta),
-        materialsCount: materialsCount === null ? current.materialsCount : clampCount(current.materialsCount + materialsDelta),
-        attendanceCount: attendanceCount === null ? current.attendanceCount : clampCount(current.attendanceCount + attendanceDelta),
+        notesCount: dashboardNotesCount !== null
+          ? clampCount(dashboardNotesCount)
+          : (notesCount === null || !hasPreviousNotesCount ? current.notesCount : clampCount(current.notesCount + notesDelta)),
+        materialsCount: dashboardMaterialsCount !== null
+          ? clampCount(dashboardMaterialsCount)
+          : (materialsCount === null || !hasPreviousMaterialsCount ? current.materialsCount : clampCount(current.materialsCount + materialsDelta)),
+        attendanceCount: dashboardAttendanceCount !== null
+          ? clampCount(dashboardAttendanceCount)
+          : (attendanceCount === null || !hasPreviousAttendanceCount ? current.attendanceCount : clampCount(current.attendanceCount + attendanceDelta)),
         openTodosCount: dashboardOpenTodosCount === null
-          ? (openTodosCount === null ? current.openTodosCount : clampCount(current.openTodosCount + openTodosDelta))
+          ? (openTodosCount === null || !hasPreviousOpenTodosCount ? current.openTodosCount : clampCount(current.openTodosCount + openTodosDelta))
           : clampCount(dashboardOpenTodosCount),
       }));
     }
@@ -1325,7 +1398,14 @@ function App() {
           }),
         );
       }
-      await Promise.all(tasks);
+      if (notes || materials || attendance) {
+        tasks.push(loadDashboardAggregateCounts(termKey).then((counts) => {
+          if (notes) nextCounts.dashboardNotesCount = counts.notesCount;
+          if (materials) nextCounts.dashboardMaterialsCount = counts.materialsCount;
+          if (attendance) nextCounts.dashboardAttendanceCount = counts.attendanceCount;
+        }));
+      }
+      await Promise.allSettled(tasks);
       if (Object.keys(nextCounts).length > 0) {
         patchSubjectAggregateCounts(subjectId, nextCounts);
       }
@@ -1952,21 +2032,27 @@ function App() {
     try {
       const result = await withBusy(() => restoreSubject(subject.id));
       const restoredSubject = result.subject || { ...subject, isArchived: false };
-      const restoredContext = await loadSubjectHydrationBestEffort(restoredSubject.id, {
-        header: true,
-        notes: true,
-        materials: true,
-        attendance: true,
-        todos: true,
-      });
+      const restoredContext = await loadRestoredSubjectHydrationBestEffort(restoredSubject.id);
       patchRestoredSubjectCaches(restoredSubject, {
         header: restoredContext.header || null,
         notes: restoredContext.notes || null,
         materials: restoredContext.materials || null,
         attendance: restoredContext.attendance || null,
         todos: restoredContext.todos || null,
+        notesCount: restoredContext.notesCount,
+        materialsCount: restoredContext.materialsCount,
+        attendanceCount: restoredContext.attendanceCount,
+        openTodosCount: restoredContext.openTodosCount,
+        doneTodosCount: restoredContext.doneTodosCount,
         restoredSlots: result.restoredSlots || [],
       });
+      if (restoredContext.failedSlices?.length) {
+        pushToast({
+          tone: "warning",
+          title: "授業は復元しましたが、一部の一覧を再同期中です。",
+          description: "件数は確認済みです。表示が古い場合は再読み込みしてください。",
+        });
+      }
       runDeferredRefresh(
         () => Promise.all([
           refreshDashboard(currentTermKey),
@@ -1992,21 +2078,27 @@ function App() {
     } catch (error) {
       if (error?.code === "ALREADY_ACTIVE_SUBJECT") {
         const restoredSubject = error.data?.subject || { ...subject, isArchived: false };
-        const restoredContext = await loadSubjectHydrationBestEffort(restoredSubject.id, {
-          header: true,
-          notes: true,
-          materials: true,
-          attendance: true,
-          todos: true,
-        });
+        const restoredContext = await loadRestoredSubjectHydrationBestEffort(restoredSubject.id);
         patchRestoredSubjectCaches(restoredSubject, {
           header: restoredContext.header || null,
           notes: restoredContext.notes || null,
           materials: restoredContext.materials || null,
           attendance: restoredContext.attendance || null,
           todos: restoredContext.todos || null,
+          notesCount: restoredContext.notesCount,
+          materialsCount: restoredContext.materialsCount,
+          attendanceCount: restoredContext.attendanceCount,
+          openTodosCount: restoredContext.openTodosCount,
+          doneTodosCount: restoredContext.doneTodosCount,
           restoredSlots: restoredContext.header?.slots || subject.slots || [],
         });
+        if (restoredContext.failedSlices?.length) {
+          pushToast({
+            tone: "warning",
+            title: "授業は復元済みですが、一部の一覧を再同期中です。",
+            description: "件数は確認済みです。表示が古い場合は再読み込みしてください。",
+          });
+        }
         pushToast({
           tone: "warning",
           title: "この授業は既に復元されています。",
@@ -2117,16 +2209,18 @@ function App() {
     }
   }
 
-  async function handleUploadMaterials(files) {
-    if (!selectedSubjectId || files.length === 0) return;
+  async function handleUploadMaterials(subjectIdOrFiles, maybeFiles) {
+    const subjectId = Array.isArray(subjectIdOrFiles) ? selectedSubjectId : subjectIdOrFiles;
+    const files = Array.isArray(subjectIdOrFiles) ? subjectIdOrFiles : maybeFiles;
+    if (!subjectId || !files?.length) return;
     try {
-      const savedMaterials = await withBusy(() => saveMaterialsBatch(selectedSubjectId, files, ""));
+      const savedMaterials = await withBusy(() => saveMaterialsBatch(subjectId, files, ""));
       savedMaterials.forEach((material) => patchSavedMaterialCaches(material, { isNew: true }));
       pushToast({ tone: "success", title: `${files.length} 件の資料を保存しました。` });
       runDeferredRefresh(
         () => Promise.all([
           refreshDashboard(currentTermKey),
-          refreshSelectedSubjectSlice(selectedSubjectId, { materials: true }),
+          refreshSelectedSubjectSlice(subjectId, { materials: true }),
         ]),
         { title: "資料は保存済みですが、表示更新に失敗しました。" },
       );
@@ -2198,7 +2292,7 @@ function App() {
   }
 
   async function handleSaveMaterialNote(draft) {
-    const subjectId = selectedSubjectId;
+    const subjectId = draft.subjectId || materialModalState.material?.subjectId || selectedSubjectId;
     try {
       const savedMaterial = await withBusy(() => updateMaterialNote(draft.id, draft.note, draft.baseUpdatedAt));
       patchSavedMaterialCaches(savedMaterial);
@@ -2215,8 +2309,8 @@ function App() {
           message: "この資料メモは別の画面で更新または削除されています。開き直してから編集してください。",
           fallbackTitle: "資料メモを保存できませんでした。",
           resync: () => (
-            selectedSubjectId
-              ? refreshSelectedSubjectSlice(selectedSubjectId, { materials: true })
+            subjectId
+              ? refreshSelectedSubjectSlice(subjectId, { materials: true })
               : Promise.resolve()
           ),
           resyncFailureTitle: "資料メモの再同期に失敗しました。",
